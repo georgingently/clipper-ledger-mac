@@ -1,34 +1,88 @@
 # GEORGIN Accounting
 
-GEORGIN Accounting is a macOS desktop application for working with legacy GEORGIN DBF accounting data. It is packaged as a self-contained `.app` and DMG for distribution to end users on Apple Silicon Macs.
+GEORGIN Accounting is a macOS desktop application for working with legacy GEORGIN accounting data stored in DBF files.
 
-## What It Does
+The motivation for this project is straightforward: preserve the speed and familiarity of an old CA-Clipper style accounting workflow while moving the actual day-to-day application experience onto macOS. Instead of asking users to remain on an old Windows/XP-era environment, this project rebuilds the workflow as a standalone Mac app with the same operational model, the same data source family, and a cleaner installation path.
 
-- Opens GEORGIN DBF data by letting the user choose the database folder on first launch
-- Provides Clipper-style accounting screens inside a single main application window
-- Supports core entry flows such as Cash Book, Bank Book, Sales, Purchase, and Journal
-- Includes reports, master data screens, utilities, and a generic database table browser
-- Builds into a distributable macOS app bundle and DMG installer
+## Why This Exists
 
-## Project Layout
+The original GEORGIN workflow was tied to legacy Clipper-style software and DBF-based accounting tables. That model still has value:
 
-- [`georgin_app.py`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/georgin_app.py): main PyQt desktop application
-- [`models/dbf_layer.py`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/models/dbf_layer.py): DBF read/write layer
-- [`georgin_tui.py`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/georgin_tui.py): old Clipper-style reference implementation
-- [`build_app.sh`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/build_app.sh): macOS app + DMG build script
+- operators know the flow already
+- the business data already exists in DBF tables
+- the UI model is fast for bookkeeping work
+
+What did not age well was the runtime environment. This project exists to bridge that gap:
+
+- keep the accounting workflow recognizable
+- keep compatibility with legacy DBF data
+- distribute a native-feeling macOS app instead of a legacy Windows dependency
+
+## Project Goals
+
+- Preserve familiar Clipper-era accounting flows on macOS
+- Read and write existing GEORGIN DBF data
+- Package the app as a self-contained `.app` and DMG
+- Let end users choose their own database folder at runtime
+- Keep database files out of the repository and out of packaged source control history
+
+## Current Application Scope
+
+The desktop app includes:
+
+- Entry modules for Cash Book, Bank Book, Sales, Purchase, and Journal
+- Clipper-style navigation for Entries, Reports, Utilities, Files, Help, and Quit
+- Report and master-data screens for key legacy tables
+- A generic database table browser so uncovered DBF families remain reachable
+- macOS app packaging and DMG release automation
+
+## Repository Structure
+
+- `georgin_app.py` — main PyQt desktop application
+- `georgin_tui.py` — terminal/TUI reference implementation used as a legacy behavior guide
+- `models/dbf_layer.py` — DBF read/write layer and data-folder detection
+- `build_app.sh` — builds the macOS `.app` bundle and DMG
+- `release_app.sh` — builds, tags, and publishes a GitHub release
+- `VERSION` — source of truth for the application version
+- `UPDATES.md` — update strategy notes
+
+## Database Handling
+
+This repository does not include live accounting databases.
+
+Important points:
+
+- database files are not committed here
+- the packaged app does not bundle a production database
+- users select their own GEORGIN DBF folder on first launch
+- if a valid data folder is already configured, the app reuses it
+
+If you want to skip the folder prompt during local development, set `GEORGIN_DATA` before launching.
 
 ## Running Locally
 
-From the project directory:
+Desktop app:
 
 ```bash
 python3 georgin_app.py
 ```
 
-Or:
+or:
 
 ```bash
 ./run_app.sh
+```
+
+Legacy web helper:
+
+```bash
+./run.sh
+```
+
+Terminal/TUI reference:
+
+```bash
+./run_tui.sh
 ```
 
 ## Building the macOS App
@@ -39,46 +93,44 @@ Build the `.app` bundle and DMG:
 bash build_app.sh
 ```
 
-Artifacts are created in:
+Build artifacts:
 
 - `dist/GEORGIN Accounting.app`
 - `dist/GEORGIN_Accounting_Installer.dmg`
 
-The bundle version is read from:
-
-- [`VERSION`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/VERSION)
+The macOS bundle version is read from `VERSION`.
 
 ## Publishing Releases
 
-To build the app, tag the current version, and publish a GitHub release with the DMG:
+To build the app, push the current branch, tag the current version, and publish a GitHub release:
 
 ```bash
 bash release_app.sh
 ```
 
-This uses the current version from `VERSION`.
-
-## Updates
-
-Update planning notes are documented here:
-
-- [`UPDATES.md`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/UPDATES.md)
-
-Important: private GitHub releases are not a good direct backend for end-user automatic updates unless every user has authenticated access. The recommended approach is to keep the source repo private and host update artifacts separately.
-
 ## End User Installation
 
-Send the DMG to the user. They only need to:
+For end users on Apple Silicon Macs:
 
 1. Open the DMG
-2. Drag `GEORGIN Accounting.app` to `Applications`
+2. Drag `GEORGIN Accounting.app` into `Applications`
 3. Open the app
-4. Select their GEORGIN database folder
+4. Select the GEORGIN data folder when prompted
 
 No separate Python or dependency installation is required.
 
-## Notes
+## Distribution Notes
 
-- Current packaged build target is Apple Silicon (`ARM64`)
-- Because the app is not notarized, macOS may require first launch via right-click -> `Open`
-- Database files are not stored in this repository; the user selects them at runtime
+- current packaged target is Apple Silicon (`ARM64`)
+- the app is self-contained for end users
+- because the app is not notarized yet, macOS may require first launch via right-click -> `Open`
+
+## Documentation
+
+- `CHANGELOG.md` — release history
+- `CONTRIBUTING.md` — contribution and release guidance
+- `UPDATES.md` — update-path options and constraints
+
+## Status
+
+This project is an active migration effort from a legacy Clipper-style accounting environment to a supported macOS desktop application. The intent is continuity of workflow, not novelty for its own sake.
