@@ -3,22 +3,25 @@
 - [x] Create branch from latest `origin/main`
 - [x] Refresh `research.md`
 - [x] Refresh `plan.md`
-- [x] Rename the GitHub repository to `clipper-ledger-mac`
-- [x] Update documentation references to the new repo name
-- [x] Verify no tracked docs still use the previous repo path
+- [x] Rebuild the legacy shell and main menu UI in `georgin_app.py`
+- [x] Align core module browse/edit layouts to the attached workflow
+- [x] Add workflow PDF export for recreated legacy screens
+- [x] Verify app launch and PDF generation
+- [x] Run Python syntax checks
 - [ ] Commit and push branch changes
 - [ ] Complete PR/merge/cleanup flow
 - [ ] Update `tasks/lessons.md` if needed
 
 ## Execution Notes
 
-- Branch: `chore/repo-rename`
-- Current repo: `georgingently/clipper-ledger-mac`
-- Target repo: `georgingently/clipper-ledger-mac`
-- App/package name remains unchanged in this task
+- Branch: `feature/legacy-ui-parity`
+- Branch base: `origin/main` @ `98ca1b9`
+- Branch creation helper script from skill `02-git-create-branch-from-main` was not present in the repository, so the equivalent safe fetch-and-branch flow was executed manually.
+- Primary implementation target: `georgin_app.py`
+- Constraint: preserve existing DBF-backed workflow while matching the attached Clipper-era visuals.
 
 ## Review
 
-- Repo rename verified via `gh repo view georgingently/clipper-ledger-mac --json name,nameWithOwner,url,visibility`
-- Previous repo path scan: `rg -n "georgingently/GEORGIN_MAC|GEORGIN_MAC" README.md UPDATES.md CONTRIBUTING.md CHANGELOG.md release_app.sh research.md plan.md tasks/todo.md`
-- Git ignore verification: `git check-ignore -v` confirms DBF, memo/index, and `.georgin_settings.json` paths are ignored
+- `python3 -m py_compile georgin_app.py models/dbf_layer.py`
+- `QT_QPA_PLATFORM=offscreen python3 ... export_workflow_pdf(..., 'workflow_preview.pdf')`
+- Verified generated artifact: `/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/workflow_preview.pdf`
