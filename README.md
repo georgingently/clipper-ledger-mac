@@ -44,6 +44,28 @@ Artifacts are created in:
 - `dist/GEORGIN Accounting.app`
 - `dist/GEORGIN_Accounting_Installer.dmg`
 
+The bundle version is read from:
+
+- [`VERSION`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/VERSION)
+
+## Publishing Releases
+
+To build the app, tag the current version, and publish a GitHub release with the DMG:
+
+```bash
+bash release_app.sh
+```
+
+This uses the current version from `VERSION`.
+
+## Updates
+
+Update planning notes are documented here:
+
+- [`UPDATES.md`](/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/UPDATES.md)
+
+Important: private GitHub releases are not a good direct backend for end-user automatic updates unless every user has authenticated access. The recommended approach is to keep the source repo private and host update artifacts separately.
+
 ## End User Installation
 
 Send the DMG to the user. They only need to:

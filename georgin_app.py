@@ -24,6 +24,20 @@ from models.dbf_layer import (
     set_data_dir, find_data_dir, get_table_fields, list_table_bases
 )
 
+
+def _read_app_version():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    version_path = os.path.join(base_dir, "VERSION")
+    try:
+        with open(version_path, "r", encoding="utf-8") as fh:
+            version = fh.read().strip()
+            return version or "0.1.0"
+    except Exception:
+        return "0.1.0"
+
+
+APP_VERSION = _read_app_version()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # THEME
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3296,6 +3310,7 @@ class MainWindow(QMainWindow):
     def _about(self):
         QMessageBox.about(self, "About GEORGIN",
             "<b>GEORGIN Accounting System</b><br>Mac Desktop Edition<br><br>"
+            f"Version: {APP_VERSION}<br><br>"
             "Built with Python + PyQt6<br>"
             "Data: CA-Clipper DBF format<br><br>"
             f"Data directory:<br>{dbf_layer.DATA_DIR}")

@@ -8,6 +8,7 @@ APP_NAME="GEORGIN Accounting"
 APP_BUNDLE="$APP_NAME.app"
 DMG_NAME="GEORGIN_Accounting_Installer.dmg"
 STAGING_DIR="dist/dmg-staging"
+APP_VERSION="$(tr -d '[:space:]' < VERSION)"
 
 echo "Cleaning previous build artifacts..."
 rm -rf build "$APP_NAME.spec"
@@ -23,6 +24,7 @@ pyinstaller \
   --onedir \
   --noconfirm \
   --add-data "models:models" \
+  --add-data "VERSION:." \
   --hidden-import dbfread \
   --hidden-import dbf \
   --hidden-import reportlab \
@@ -30,6 +32,14 @@ pyinstaller \
   --hidden-import PyQt6.QtPrintSupport \
   --osx-bundle-identifier "com.georgin.accounting" \
   georgin_app.py
+
+APP_PLIST="dist/$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_PLIST"
+if /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$APP_PLIST"
+else
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $APP_VERSION" "$APP_PLIST"
+fi
 
 echo "Preparing DMG contents..."
 mkdir -p "$STAGING_DIR"
