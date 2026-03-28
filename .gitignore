@@ -10,3 +10,32 @@ dist/
 
 .venv/
 venv/
+
+# Local app state
+.georgin_settings.json
+
+# Legacy DBF / Clipper data files and folders
+GEORGIN tra/
+GEORGIN_TRA/
+data/
+db/
+*.dbf
+*.DBF
+*.dbt
+*.DBT
+*.fpt
+*.FPT
+*.cdx
+*.CDX
+*.idx
+*.IDX
+*.mdx
+*.MDX
+*.ntx
+*.NTX
+*.mem
+*.MEM
+*.bak
+*.BAK
+*.tbk
+*.TBK
