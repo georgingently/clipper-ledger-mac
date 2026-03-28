@@ -1382,6 +1382,40 @@ class GenericTableModule(QWidget):
         self._build_ui()
         self.load_data()
 
+    def _title_bar(self, title):
+        wrapper = QWidget()
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        left = QFrame()
+        left.setFrameShape(QFrame.Shape.HLine)
+        left.setStyleSheet("color:#d0d0d0;")
+        right = QFrame()
+        right.setFrameShape(QFrame.Shape.HLine)
+        right.setStyleSheet("color:#d0d0d0;")
+        label = QLabel(title)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(
+            "font-size:18px; color:#000000; background:#d0d0d0; padding:2px 14px; border:2px solid #d0d0d0;"
+        )
+        layout.addWidget(left, 1)
+        layout.addWidget(label)
+        layout.addWidget(right, 1)
+        return wrapper
+
+    def _search_box(self, placeholder="Search…"):
+        box = QLineEdit()
+        box.setPlaceholderText(placeholder)
+        box.setFixedWidth(220)
+        box.setClearButtonEnabled(True)
+        return box
+
+    def _footer_bar(self, text):
+        bar = QLabel(text)
+        bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar.setStyleSheet("color:#ffffff; font-size:16px; padding:10px 8px 4px 8px;")
+        return bar
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(6)
@@ -1401,6 +1435,7 @@ class GenericTableModule(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("Alt_N/Alt_P-Print  Alt_E-Export  Esc-Exit"))
 
         self.lbl_status = QLabel("")
         self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
@@ -3325,29 +3360,30 @@ class DosMenuPage(QWidget):
                 ("Glass Stock", handlers["glass_stock"]),
             ],
             "Reports": [
-                ("Day Book", handlers["daybook"]),
-                ("Account Ledger", handlers["ledger"]),
+                ("Ledger", handlers["ledger"]),
+                ("Group Ledger", handlers["group_ledger"]),
+                ("Outstanding(Ledger)", handlers["outstanding"]),
                 ("Trial Balance", handlers["trial_balance"]),
-                ("Sales Register", handlers["sales"]),
-                ("Purchase Register", handlers["purchase"]),
-                ("Outstanding Bills", handlers["outstanding"]),
                 ("Stock Register", handlers["stock_register"]),
-                ("Debtors", handlers["debtors"]),
-                ("Creditors", handlers["creditors"]),
+                ("Stock Summary", handlers["stock_summary"]),
+                ("Itemwise Purchase", handlers["itemwise_purchase"]),
+                ("Itemwise Sales", handlers["itemwise_sales"]),
+                ("Cash & Bank Balance", handlers["cash_bank_balance"]),
+                ("Daily Summary", handlers["daybook"]),
             ],
             "Utilities": [
                 ("Change Year", handlers["change_year"]),
                 ("Change Data Folder", handlers["change_data_folder"]),
-                ("Workflow PDF", handlers["workflow_pdf"]),
                 ("Backup", handlers["backup"]),
                 ("Restore", handlers["restore"]),
             ],
             "Files": [
-                ("Database Tables", handlers["db_tables"]),
-                ("Account Master", handlers["acmst"]),
-                ("Item Master", handlers["itmst"]),
+                ("A/c   Master", handlers["acmst"]),
+                ("Group Master", handlers["group_mst"]),
                 ("Agent Master", handlers["agent_mst"]),
-                ("Address Book", handlers["address_book"]),
+                ("Item  Master", handlers["itmst"]),
+                ("I.Grp Master", handlers["item_group_mst"]),
+                ("Tax   Master", handlers["tax_mst"]),
             ],
             "Help": [
                 ("About", handlers["about"]),
@@ -3396,7 +3432,6 @@ class DosMenuPage(QWidget):
         self.menu_list = QListWidget()
         self.menu_list.setFixedWidth(320)
         self.menu_list.itemActivated.connect(self._activate_item)
-        self.menu_list.itemDoubleClicked.connect(self._activate_item)
         self.menu_list.currentItemChanged.connect(self._update_preview)
         body_layout.addWidget(self.menu_list, alignment=Qt.AlignmentFlag.AlignTop)
 
@@ -3529,14 +3564,22 @@ class MainWindow(QMainWindow):
                 "glass_stock": self._open_glass_stock,
                 "daybook": self._open_daybook,
                 "ledger": self._open_ledger,
+                "group_ledger": self._open_group_ledger,
                 "trial_balance": self._open_trial_balance,
                 "outstanding": self._open_outstanding,
                 "stock_register": self._open_stock_register,
+                "stock_summary": self._open_stock_summary,
+                "itemwise_purchase": self._open_itemwise_purchase,
+                "itemwise_sales": self._open_itemwise_sales,
+                "cash_bank_balance": self._open_cash_bank_balance,
                 "debtors": self._open_debtors,
                 "creditors": self._open_creditors,
                 "db_tables": self._open_db_tables,
                 "acmst": self._open_acmst,
+                "group_mst": self._open_group_master,
                 "itmst": self._open_itmst,
+                "item_group_mst": self._open_item_group_master,
+                "tax_mst": self._open_tax_master,
                 "agent_mst": self._open_agent_master,
                 "address_book": self._open_address_book,
                 "change_year": self._change_year,
@@ -3641,6 +3684,9 @@ class MainWindow(QMainWindow):
     def _open_ledger(self):
         self._push_module(LedgerModule(self.year, self.company), "Account Ledger", "Account Ledger")
 
+    def _open_group_ledger(self):
+        self._open_first_available_generic(["GL", "ACMST"], "Group Ledger", "Group Ledger")
+
     def _open_trial_balance(self):
         self._push_module(TrialBalanceModule(self.year, self.company), "Trial Balance", "Trial Balance")
 
@@ -3649,6 +3695,18 @@ class MainWindow(QMainWindow):
 
     def _open_stock_register(self):
         self._push_module(StockRegisterModule(self.year, self.company), "Stock Register", "Stock Register")
+
+    def _open_stock_summary(self):
+        self._push_module(StockRegisterModule(self.year, self.company), "Stock Summary", "Stock Summary")
+
+    def _open_itemwise_purchase(self):
+        self._open_first_available_generic(["PREG61", "ITMST"], "Itemwise Purchase", "Itemwise Purchase")
+
+    def _open_itemwise_sales(self):
+        self._open_first_available_generic(["SREG41", "ITMST"], "Itemwise Sales", "Itemwise Sales")
+
+    def _open_cash_bank_balance(self):
+        self._open_first_available_generic(["ACMST", "GL"], "Cash & Bank Balance", "Cash & Bank Balance")
 
     def _open_debtors(self):
         self._push_module(DebtorCreditorModule(self.year, self.company, mode="debtors"), "Debtors", "Debtors")
@@ -3673,14 +3731,35 @@ class MainWindow(QMainWindow):
     def _open_acmst(self):
         self._push_module(AccountMasterModule(self.year, self.company), "Account Master", "Account Master")
 
+    def _open_group_master(self):
+        self._open_first_available_generic(["GRPMST"], "Group Master", "Group Master")
+
     def _open_itmst(self):
         self._push_module(ItemMasterModule(self.year, self.company), "Item Master", "Item Master")
+
+    def _open_item_group_master(self):
+        self._open_first_available_generic(["ITGRP", "ITMST"], "Item Group Master", "Item Group Master")
+
+    def _open_tax_master(self):
+        self._open_first_available_generic(["TAXMST", "TAX", "ACMST"], "Tax Master", "Tax Master")
 
     def _open_agent_master(self):
         self._push_module(AgentMasterModule(self.year, self.company), "Agent Master", "Agent Master")
 
     def _open_address_book(self):
         self._push_module(AddressBookModule(self.year, self.company), "Address Book", "Address Book")
+
+    def _open_first_available_generic(self, candidates, title, status_message):
+        available = set(list_table_bases(self.year))
+        for table_name in candidates:
+            if table_name in available:
+                self._push_module(
+                    GenericTableModule(self.year, self.company, table_name),
+                    title,
+                    status_message,
+                )
+                return
+        QMessageBox.information(self, "", f"No linked database table found for {title}.")
 
     def _change_year(self):
         dlg = YearSelectDialog(self)

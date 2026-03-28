@@ -1,127 +1,97 @@
 ## Scope
 
-Rebuild the desktop application shell so it matches the attached legacy GEORGIN/Clipper screenshots as closely as possible while preserving the existing DBF-backed workflows, then add a PDF workflow export that captures the recreated legacy screens.
+Fix the packaged-app crash in the legacy menu flow, stop duplicate Cash/Bank opening behavior, improve UI parity toward the attached screenshots, and ensure every exposed menu option opens a real DBF-backed screen instead of a broken or placeholder path.
 
 ## Files To Modify
 
 - `georgin_app.py`
-- `README.md`
 - `research.md`
 - `plan.md`
 - `tasks/todo.md`
 
 ## Design Decisions
 
-1. Keep the current DBF data-access and module actions intact, and redesign the PyQt shell around them.
-Tradeoff: this minimizes business-logic regression risk, but some widgets must be restructured instead of fully replaced.
+1. Fix the crash by eliminating unsafe menu double-dispatch and by making generic stock/table modules inherit the shared base class they already depend on.
+Tradeoff: this is the smallest stable fix path and directly addresses the stack trace, but it does not by itself complete pixel-perfect parity.
 
-2. Introduce shared legacy-shell helpers for header, title tabs, footers, framed panels, and browse/edit layouts.
-Tradeoff: a shared shell creates consistency across screens, but it requires touching several existing module classes.
+2. Treat duplicate Cash/Bank opening as an event-wiring bug, not a book-selection-data bug.
+Tradeoff: removing duplicate Qt signal handling is lower risk than adding stateful guards around individual handlers.
 
-3. Replace modern toolbars/button rows with legacy function-key footer hints and tighter inline/edit panels that mirror the screenshots.
-Tradeoff: stronger visual parity is achieved, but some convenience controls become less visually explicit.
+3. Keep menu destinations DBF-backed by routing stock and table options through working modules only.
+Tradeoff: generic DBF browser views remain less exact than the screenshots, but they preserve database coverage while the parity refactor continues.
 
-4. Add a workflow PDF generator that exports recreated legacy screens from the app rather than relying on HTML table printouts.
-Tradeoff: this is closer to the screenshots, but it requires a second export path separate from the tabular report print helpers.
-
-5. Preserve current menu destinations and navigation order exactly where possible.
-Tradeoff: some screenshot-specific intermediate dialogs may need to be represented by inline framed panels instead of literal legacy keystroke popups.
+4. Tighten the legacy shell text and labels where they still diverge materially from the screenshots.
+Tradeoff: this is still iterative; exact parity requires matching both structure and wording without destabilizing working screens.
 
 ## Code-Level Approach
 
-- Refactor the global app stylesheet to tighten the palette, typography, spacing, and selection colors toward the screenshots.
-- Replace the current `DosMenuPage` left-list plus right-info panel with a real legacy menu frame:
-  - boxed top header
-  - horizontal section labels and line art
-  - left submenu list
-  - optional secondary/parameter panels on the right for report flows
-  - bottom fixed footer help bar
-- Extend `ModuleBase` with reusable helpers for:
-  - centered title-tab headers
-  - bordered browse tables
-  - edit panels beneath the browse panel
-  - footer key legends
-  - screen capture/export support
-- Update entry/report/master modules to render in the same browse/edit composition as the screenshots:
-  - Cash Book / Bank Book
-  - Purchase
-  - Sales
-  - Journal
-  - Stock Receipt / Stock Issue
-  - Account / Item master
-  - report viewer screens for ledger / trial balance / stock summary / itemwise flows
-- Add a workflow PDF export path that can stitch together screen captures of the recreated UI into a single PDF.
-- Keep the existing HTML print/PDF helpers only for tabular exports where they remain useful, but route the new “workflow PDF” requirement through the legacy-screen capture flow.
+- Update `DosMenuPage` signal wiring so a double-click opens exactly once.
+- Add a small activation guard only if needed after signal cleanup.
+- Change `GenericTableModule` to inherit from `ModuleBase` so `_title_bar`, `_search_box`, `_footer_bar`, and table helpers are always available.
+- Review table/master/report openers and ensure they each resolve to a DBF-backed widget without constructor errors.
+- Reduce remaining placeholder preview text and align key titles/labels closer to the screenshots.
+- Re-run the workflow PDF export and Python syntax checks after the fixes.
 
 ## Success Criteria
 
-- The main window visually matches the legacy screenshots closely:
-  - black background
-  - white/gray line frames
-  - centered title tabs
-  - legacy header/footer treatment
-  - red and teal highlight states
-- Menu workflow remains intact for Entries, Reports, Utilities, Files, Help, and Quit.
-- Core modules render in the same browse/edit workflow shape as the screenshots without changing DBF-backed behavior.
-- The app can generate a PDF that documents the recreated workflow screens in sequence.
-- Existing desktop startup still works without changing DBF read/write semantics.
+- Double-clicking a menu item opens it once.
+- Cash Book and Bank Book do not prompt twice.
+- Stock Receipt / Stock Issue / Glass Stock / Database Tables do not crash on open.
+- Exposed menu options remain linked to DBF-backed modules or generic DBF table viewers.
+- The packaged-app crash path from the provided trace is addressed in code.
+- Legacy labels and shell text are closer to the attached screenshots than the current state.
 
 ## Test Strategy
 
 - `python3 -m py_compile georgin_app.py models/dbf_layer.py`
-- Launch the desktop app locally and validate:
-  - menu shell
-  - cash/bank browse/edit layout
-  - purchase browse/edit layout
-  - sales browse/edit layout
-  - journal browse/edit layout
-  - account/item master browse/edit layout
-  - at least one report-viewer layout
-- Generate the workflow PDF and confirm the file is created successfully.
+- Launch the app and manually verify:
+  - double-clicking menu items opens once
+  - Cash Book opens directly once
+  - Bank Book asks for selection once
+  - Stock Receipt / Stock Issue / Glass Stock open without crashing
+  - Database Tables opens and arbitrary table drill-in works
+- `QT_QPA_PLATFORM=offscreen python3 - <<'PY' ... export_workflow_pdf(None, 'A4 2024-25,2025-2026', 'workflow_preview.pdf') ... PY`
 - `git diff --stat`
 
 ## Assumptions
 
-- The user wants the PyQt desktop app to be the canonical implementation target.
-- The existing DBF-backed modules already represent the correct functional workflow and should be preserved.
-- Recreated local screen captures are acceptable for the PDF deliverable because the prompt attachments are not available as filesystem images inside the repository.
+- The crash came from the current merged `main` state, not from an untracked local packaging-only change.
+- The user’s “all options” requirement means every visible menu item should either open a real screen or a generic DBF browser, not silently do nothing.
+- Exact text parity can be improved in this task, but the highest priority remains crash-free single-path workflow execution.
 
 ## Rollback Strategy
 
-- Keep DBF-layer behavior unchanged so UI refactors can be reverted without data-format consequences.
-- If a shared-shell refactor destabilizes multiple modules, revert the shell/helper changes and reapply the redesign incrementally to the highest-priority screens first.
-- If the new workflow PDF path proves unstable, preserve the UI redesign and temporarily fall back to exporting a reduced set of recreated screens while documenting the limitation.
+- Keep the fixes localized to menu wiring and module inheritance so they can be reverted without touching DBF semantics.
+- If a menu refactor causes wider regressions, revert to the last merged shell commit and reapply only the crash/double-open fixes first.
 
 ## Security Impact
 
-- Neutral. The work changes desktop presentation and export behavior, not auth, secrets, or remote connectivity.
+- Neutral. This is a UI/control-flow stability fix with no auth, network, or secret-handling changes.
 
 ## Performance Impact
 
-- Low risk. The new shell adds more framed widgets and optional screen rendering for PDF export, but the DBF access pattern is unchanged.
-- The only potentially heavier operation is PDF generation from screen captures; that should be user-triggered and not affect normal browsing or editing.
+- Negligible. The changes reduce duplicate handler execution and avoid exception-driven aborts.
 
 ## Active Lessons
 
 - Do not commit developer-specific database paths or machine-local filesystem assumptions into tracked launchers or defaults before publishing the repository.
 - Public-facing repository docs should explain the engineering motivation and current constraints clearly so the project reads as intentional, not improvised.
 - For repositories that work with DBF datasets, `.gitignore` must block the full DBF/memo/index file family so accidental local data drops never get pushed.
+- In packaged PyQt apps, unhandled Python exceptions inside Qt slots can abort the entire app, so menu/event wiring must avoid duplicate dispatch and constructor paths used by slots must be import-safe.
 
 ## Annotation Review
 
 Round 1:
-- All currently expected files to modify are explicitly named.
-- The workflow-preservation constraint is documented.
-- The PDF limitation around non-local prompt attachments is recorded up front.
-- Test strategy maps to the major UI success criteria.
+- Crash root cause candidates are explicitly tied to the stack trace and named code paths.
+- Every file to modify is named.
+- Test strategy maps directly to the user-reported failures.
 
 Round 2:
-- Shared-shell refactor is the chosen implementation path to avoid duplicated one-off styling edits.
-- Entry, report, and master modules are all covered explicitly.
+- Duplicate-open handling and `GenericTableModule` inheritance are the primary code changes.
 - No open questions remain from `research.md`.
 
 ## Plan vs Reality
 
-- The implementation stayed centered on `georgin_app.py`; the existing DBF data layer did not need changes.
-- Instead of embedding the prompt attachment binaries directly into the PDF, the app now exports a recreated legacy workflow PDF composed from in-app rendered reference screens. This matches the screenshots structurally while avoiding a dependency on non-repository image files.
-- Verification used offscreen Qt PDF generation plus Python syntax checks because the repository does not bundle a test dataset for a full interactive desktop run in automation.
+- The crash fix was split into two direct changes: remove duplicate menu double-click dispatch and make `GenericTableModule` self-sufficient instead of relying on `ModuleBase` methods it could not safely inherit at its declaration point.
+- To move closer to the screenshot text, the visible Reports and Files menus were renamed toward the legacy wording and mapped to DBF-backed modules or generic DBF viewers.
+- Verification remained lightweight and offscreen because no bundled GEORGIN sample database is available for full automated UI traversal.
