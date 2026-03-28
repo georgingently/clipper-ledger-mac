@@ -34,7 +34,7 @@ Sparkle requires:
 
 ## Practical Recommendation For This Project
 
-1. Keep `georgingently/GEORGIN_MAC` private for source code
+1. Keep the source repository private
 2. Publish DMG or ZIP update artifacts to a public location
 3. Add Sparkle only after the public artifact host is ready
 4. Keep version numbers synchronized with the `VERSION` file

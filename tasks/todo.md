@@ -1,27 +1,24 @@
 ## Checklist
 
-- [x] Audit tracked files for local database path leakage and public-repo issues
-- [x] Create `research.md`
-- [x] Create `plan.md`
-- [x] Remove hardcoded local DB paths from tracked launch/config files
-- [x] Rewrite `README.md` around project motivation and public-facing quality
-- [x] Add `CHANGELOG.md`
-- [x] Add `CONTRIBUTING.md`
-- [x] Verify no local DB path remains in tracked files
-- [x] Run compile/build verification
+- [x] Create branch from latest `origin/main`
+- [x] Refresh `research.md`
+- [x] Refresh `plan.md`
+- [x] Rename the GitHub repository to `clipper-ledger-mac`
+- [x] Update documentation references to the new repo name
+- [x] Verify no tracked docs still use the previous repo path
 - [ ] Commit and push branch changes
-- [ ] Make the repository public
 - [ ] Complete PR/merge/cleanup flow
-- [ ] Update `tasks/lessons.md`
+- [ ] Update `tasks/lessons.md` if needed
 
 ## Execution Notes
 
-- Branch: `chore/public-release-readiness`
-- Base: `origin/main`
-- Main risks: local DB path leakage, weak repo presentation, accidental public exposure before verification
+- Branch: `chore/repo-rename`
+- Current repo: `georgingently/clipper-ledger-mac`
+- Target repo: `georgingently/clipper-ledger-mac`
+- App/package name remains unchanged in this task
 
 ## Review
 
-- Leak scan: `rg -n "/Volumes/Workspace|GEORGIN tra" . --glob '!dist/**' --glob '!build/**' --glob '!.git/**'`
-- Compile check: `python3 -m py_compile georgin_app.py models/dbf_layer.py app.py`
-- Packaging check: `bash build_app.sh`
+- Repo rename verified via `gh repo view georgingently/clipper-ledger-mac --json name,nameWithOwner,url,visibility`
+- Previous repo path scan: `rg -n "georgingently/GEORGIN_MAC|GEORGIN_MAC" README.md UPDATES.md CONTRIBUTING.md CHANGELOG.md release_app.sh research.md plan.md tasks/todo.md`
+- Git ignore verification: `git check-ignore -v` confirms DBF, memo/index, and `.georgin_settings.json` paths are ignored
