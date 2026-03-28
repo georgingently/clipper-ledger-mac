@@ -1,32 +1,25 @@
 ## Relevant Files
 
-- `georgin_app.py` — primary PyQt desktop app; contains the window shell, DOS-style menu page, entry modules, report modules, export helpers, and the current PDF/export flow.
-- `georgin_tui.py` — terminal reference for legacy Clipper interaction patterns; useful for parity cues and menu flow wording.
-- `models/dbf_layer.py` — DBF read/write layer and table discovery; must remain unchanged in behavior so the UI redesign does not break legacy data access.
-- `README.md` — should reflect the new legacy-UI parity and workflow PDF capability if those features become user-visible.
-- `tasks/todo.md` — execution tracker for this task.
-- `plan.md` — single source of truth for implementation scope, risks, and verification.
+- `georgin_app.py` — contains the PyQt desktop shell, menu list event wiring, entry/report handlers, and the modules for stock/report/master screens.
+- `models/dbf_layer.py` — DBF read/write layer used by all menu destinations; needed to confirm which screens are truly database-backed.
+- `README.md` — may need a small update if behavior changes materially.
+- `tasks/todo.md` — execution tracker for this fix task.
+- `plan.md` — single source of truth for crash/root-cause fixes and verification.
 
 ## Data Flow
 
-1. `MainWindow` boots with a selected financial year and company, then routes the user through `DosMenuPage`.
-2. Menu handlers open PyQt module widgets such as `CashBankBookModule`, `SalesModule`, `PurchaseModule`, `JournalModule`, and report/master modules.
-3. Each module reads and writes DBF tables through `models/dbf_layer.py`; this data path is already working and should be preserved.
-4. Existing print/PDF/export behavior is HTML-table based; it does not match the legacy screenshots and needs a new workflow-oriented PDF output path.
-5. The user’s screenshots show a stricter legacy frame:
-   - boxed header with date, company/year, and time
-   - horizontal top menu with left-side submenu workflow
-   - browse screens with centered title tabs
-   - edit overlays and report-viewer screens
-   - persistent bottom help/function-key footer
+1. `MainWindow` instantiates `DosMenuPage`, which exposes a `QListWidget` of actions under Entries / Reports / Utilities / Files / Help / Quit.
+2. Double-clicking a menu item currently routes through Qt slot proxies into `_activate_item`, which then calls a handler like `_open_cash_book`, `_open_bank_book`, `_open_stock_receipt`, or `_open_db_tables`.
+3. Many handlers build a module widget and push it onto the stacked desktop shell. Those modules then load DBF tables through `models/dbf_layer.py`.
+4. `GenericTableModule` is used for Stock Receipt, Stock Issue, Glass Stock, and arbitrary table browsing from Database Tables, so any constructor error there breaks multiple menu paths.
 
 ## Constraints & Risks
 
-- The user explicitly wants the UI to match the attached screenshots and does not want the workflow changed, so the existing menu targets and data-entry flow must stay intact.
-- The safest way to achieve parity is to reuse current DBF handlers and reshape only presentation, layout, and navigation chrome.
-- Many modules already have “Clipper-like” styling, but they are inconsistent and still contain modern controls/buttons. Converging them to a single legacy shell risks regressions if shared helpers are changed carelessly.
-- The repository does not include sample DBF data, so verification may depend on whether a local GEORGIN dataset is available in the runtime environment.
-- The attached screenshots are visible in the conversation but not available as local image files, so the PDF workflow likely needs to use recreated in-app screens or exported local captures rather than embedding the original prompt assets directly.
+- The user wants exact legacy parity, but the immediate bug fix must prioritize stability and single-invocation workflow correctness.
+- The crash log points to a Python exception propagating through a Qt slot proxy during a `QListWidget` double-click path; PyQt packaged apps abort on these unhandled slot exceptions.
+- The current menu widget connects both `itemActivated` and `itemDoubleClicked` to the same opener. On macOS this can trigger duplicate opens for the same user action.
+- `GenericTableModule` currently subclasses `QWidget` while using helper methods only defined on `ModuleBase`, creating a likely `AttributeError` when opening stock/generic-table screens.
+- “All options should be linked to the database” means menu targets should open real DBF-backed modules wherever data exists instead of placeholders or broken generic pages.
 
 ## Open Questions
 

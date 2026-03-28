@@ -3,25 +3,27 @@
 - [x] Create branch from latest `origin/main`
 - [x] Refresh `research.md`
 - [x] Refresh `plan.md`
-- [x] Rebuild the legacy shell and main menu UI in `georgin_app.py`
-- [x] Align core module browse/edit layouts to the attached workflow
-- [x] Add workflow PDF export for recreated legacy screens
-- [x] Verify app launch and PDF generation
+- [x] Fix menu double-open behavior
+- [x] Fix crash path for generic stock/table screens
+- [x] Tighten legacy text/layout parity where still off
+- [x] Verify DBF-backed linkage for visible menu options
+- [x] Re-run workflow PDF export
 - [x] Run Python syntax checks
 - [ ] Commit and push branch changes
 - [ ] Complete PR/merge/cleanup flow
-- [ ] Update `tasks/lessons.md` if needed
+- [x] Update `tasks/lessons.md` if needed
 
 ## Execution Notes
 
-- Branch: `feature/legacy-ui-parity`
-- Branch base: `origin/main` @ `98ca1b9`
-- Branch creation helper script from skill `02-git-create-branch-from-main` was not present in the repository, so the equivalent safe fetch-and-branch flow was executed manually.
-- Primary implementation target: `georgin_app.py`
-- Constraint: preserve existing DBF-backed workflow while matching the attached Clipper-era visuals.
+- Branch: `fix/legacy-ui-crash-parity`
+- Branch base: `origin/main` @ `31e98cd`
+- Crash trace points at a Python exception escaping a `QListWidget` double-click slot on the main thread.
+- Two immediate suspects:
+  - menu action double-dispatch from both `itemActivated` and `itemDoubleClicked`
+  - `GenericTableModule` using `ModuleBase` helpers without inheriting from `ModuleBase`
 
 ## Review
 
 - `python3 -m py_compile georgin_app.py models/dbf_layer.py`
-- `QT_QPA_PLATFORM=offscreen python3 ... export_workflow_pdf(..., 'workflow_preview.pdf')`
-- Verified generated artifact: `/Volumes/Workspace/Projects/Clipper/GEORGIN_MAC/workflow_preview.pdf`
+- `QT_QPA_PLATFORM=offscreen python3 ... DosMenuPage(...) / GenericTableModule('SRCT') ...`
+- `QT_QPA_PLATFORM=offscreen python3 ... export_workflow_pdf(None, 'A4 2024-25,2025-2026', 'workflow_preview.pdf') ...`
