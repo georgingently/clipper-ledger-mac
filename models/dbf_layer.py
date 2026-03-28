@@ -8,8 +8,8 @@ import datetime
 import re
 from dbfread import DBF, FieldParser
 
-DATA_DIR = os.environ.get("GEORGIN_DATA", os.path.join(os.path.dirname(__file__), "..", "..", "GEORGIN tra"))
-DATA_DIR = os.path.abspath(DATA_DIR)
+_env_data_dir = os.environ.get("GEORGIN_DATA", "").strip()
+DATA_DIR = os.path.abspath(_env_data_dir) if _env_data_dir else os.path.expanduser("~")
 
 # Year prefix map: year code -> file prefix  (empty = current year)
 YEAR_PREFIXES = {
