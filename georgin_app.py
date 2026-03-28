@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """GEORGIN Accounting System — Complete Mac Desktop Application (PyQt6)"""
-import sys, os, csv, datetime, shutil
+import sys, os, csv, datetime, shutil, traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt6.QtWidgets import (
@@ -2223,45 +2223,69 @@ class SalesModule(ModuleBase):
         super().__init__(year, company, parent)
         self._accounts = get_accounts_dict(year)
         self._edit_recno = None
+        self._loading_detail = False
         self._build_ui(); self.load_data()
 
     def _build_ui(self):
         layout = QVBoxLayout(self); layout.setSpacing(6); layout.setContentsMargins(8,8,8,4)
-        layout.addWidget(self._title_bar("SALES ENTRY"))
+        layout.addWidget(self._title_bar("SALES"))
 
-        browse_group = self._clipper_group("SALES ENTRY")
+        browse_group = self._clipper_group("SALES")
         browse_layout = QVBoxLayout(browse_group)
-        self.table = self._make_table(["Date","Bill No","Party Code","Party Name","Sales Amt ₹","Total Amt ₹","Type"])
-        self.table.setColumnWidth(0,90); self.table.setColumnWidth(1,100); self.table.setColumnWidth(2,80)
-        self.table.setColumnWidth(3,200); self.table.setColumnWidth(4,120); self.table.setColumnWidth(5,120); self.table.setColumnWidth(6,80)
-        self.table.clicked.connect(self._edit_entry)
-        self.table.doubleClicked.connect(self._edit_entry)
+        self.table = self._make_table(["Bill", "Date", "Party", "Sls. Amt", "Add", "Less", "Nett Amt", "Type"])
+        self.table.setColumnWidth(0,100); self.table.setColumnWidth(1,90); self.table.setColumnWidth(2,110)
+        self.table.setColumnWidth(3,120); self.table.setColumnWidth(4,90); self.table.setColumnWidth(5,90)
+        self.table.setColumnWidth(6,130); self.table.setColumnWidth(7,90)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.itemSelectionChanged.connect(self._load_selected_entry)
         browse_layout.addWidget(self.table)
         layout.addWidget(browse_group, 1)
 
-        entry_group = self._clipper_group("NEW SALE")
+        entry_group = self._clipper_group("EDITING")
         form = QGridLayout(entry_group)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
         self.f_billno = QLineEdit()
         self.f_date = QLineEdit(datetime.date.today().strftime("%d/%m/%y"))
         self.f_party = QLineEdit()
+        self.f_pname = QLineEdit()
+        self.f_pname.setReadOnly(True)
         self.f_vehicle = QLineEdit()
-        self.f_amount = QLineEdit("0.00")
-        self.f_credit = QLineEdit("N")
-        for widget, width in [(self.f_billno, 120), (self.f_date, 120), (self.f_party, 120), (self.f_amount, 120), (self.f_credit, 80)]:
+        self.f_salamt = QLineEdit("0.00")
+        self.f_totamt = QLineEdit("0.00")
+        self.f_credit = QCheckBox("Credit Sale")
+        self.f_narr = QLineEdit()
+        for widget, width in [
+            (self.f_billno, 120), (self.f_date, 120), (self.f_party, 120),
+            (self.f_pname, 260), (self.f_vehicle, 140), (self.f_salamt, 120),
+            (self.f_totamt, 120)
+        ]:
             widget.setMaximumWidth(width)
-        form.addWidget(QLabel("Bill No"), 0, 0)
-        form.addWidget(QLabel("Date"), 0, 1)
-        form.addWidget(QLabel("Party"), 0, 2)
-        form.addWidget(QLabel("Vehicle"), 0, 3)
-        form.addWidget(QLabel("Amount"), 0, 4)
-        form.addWidget(QLabel("Credit"), 0, 5)
-        form.addWidget(self.f_billno, 1, 0)
-        form.addWidget(self.f_date, 1, 1)
-        form.addWidget(self.f_party, 1, 2)
-        form.addWidget(self.f_vehicle, 1, 3)
-        form.addWidget(self.f_amount, 1, 4)
-        form.addWidget(self.f_credit, 1, 5)
+        form.addWidget(QLabel("Bill No."), 0, 0)
+        form.addWidget(self.f_billno, 0, 1)
+        form.addWidget(QLabel("Date"), 0, 2)
+        form.addWidget(self.f_date, 0, 3)
+        form.addWidget(self.f_credit, 0, 4, 1, 2)
+
+        form.addWidget(QLabel("Party A/c"), 1, 0)
+        form.addWidget(self.f_party, 1, 1)
+        form.addWidget(QLabel("Party Name"), 1, 2)
+        form.addWidget(self.f_pname, 1, 3, 1, 3)
+
+        form.addWidget(QLabel("Vehicle"), 2, 0)
+        form.addWidget(self.f_vehicle, 2, 1)
+        form.addWidget(QLabel("Sales Amt"), 2, 2)
+        form.addWidget(self.f_salamt, 2, 3)
+        form.addWidget(QLabel("Nett Amt"), 2, 4)
+        form.addWidget(self.f_totamt, 2, 5)
+
+        form.addWidget(QLabel("Narration"), 3, 0)
+        form.addWidget(self.f_narr, 3, 1, 1, 5)
+
         btns = QHBoxLayout()
+        self.btn_new = self._toolbar_btn("New")
+        self.btn_edit = self._toolbar_btn("Edit")
         self.btn_lookup = self._toolbar_btn("Lookup")
         self.btn_save = self._toolbar_btn("Save", cls="primary")
         self.btn_delete = self._toolbar_btn("Delete", cls="danger")
@@ -2269,22 +2293,28 @@ class SalesModule(ModuleBase):
         self.btn_pdf = self._toolbar_btn("PDF")
         self.btn_csv = self._toolbar_btn("CSV")
         self.btn_clear = self._toolbar_btn("Clear")
-        for b in [self.btn_lookup, self.btn_save, self.btn_delete, self.btn_print, self.btn_pdf, self.btn_csv, self.btn_clear]:
+        for b in [self.btn_new, self.btn_edit, self.btn_lookup, self.btn_save, self.btn_delete, self.btn_print, self.btn_pdf, self.btn_csv, self.btn_clear]:
             btns.addWidget(b)
         btns.addStretch()
-        form.addLayout(btns, 2, 0, 1, 6)
+        form.addLayout(btns, 4, 0, 1, 6)
         layout.addWidget(entry_group)
         layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-No.  2-Dt  F5-Copy  F6-Reg.  F7-Qck_Del  F8-updt"))
 
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:2px;")
         layout.addWidget(self.lbl_status)
+        self.f_party.textChanged.connect(self._update_party_name)
+        self.btn_new.clicked.connect(self._reset_entry_form)
+        self.btn_edit.clicked.connect(self._load_selected_entry)
         self.btn_lookup.clicked.connect(self._lookup_party)
-        self.btn_save.clicked.connect(self._save_inline_entry)
+        self.btn_save.clicked.connect(self._save_entry)
         self.btn_delete.clicked.connect(self._delete_entry)
         self.btn_print.clicked.connect(self._print); self.btn_pdf.clicked.connect(self._pdf); self.btn_csv.clicked.connect(self._csv)
         self.btn_clear.clicked.connect(self._reset_entry_form)
 
     def load_data(self):
+        selected_bill = self.f_billno.text().strip()
+        selected_recno = self._edit_recno
+        self.table.blockSignals(True)
         self.table.setSortingEnabled(False); self.table.setRowCount(0)
         self._records = read_table("SREG41", self.year)
         self._records.sort(key=lambda r: (
@@ -2297,26 +2327,39 @@ class SalesModule(ModuleBase):
             row = self.table.rowCount(); self.table.insertRow(row)
             accd = str(rec_value(r, "ACCD", "ACCDOTK", default="")).strip()
             tot = float(rec_value(r, "TOTAMT", "TOTAMTTK", default=0) or 0); total += tot
-            vals = [dt.strftime("%d/%m/%y") if dt else "",
-                    str(rec_value(r, "SBILLNO", "SBILLNOTK", default="")).strip(), accd,
-                    self._accounts.get(accd,accd)[:28],
-                    fmt_amount(rec_value(r, "SLSAMT", "SLSAMTTK", default=0)),
+            sales_amt = float(rec_value(r, "SLSAMT", "SLSAMTTK", default=0) or 0)
+            vals = [str(rec_value(r, "SBILLNO", "SBILLNOTK", default="")).strip(),
+                    dt.strftime("%d/%m/%y") if dt else "",
+                    accd,
+                    fmt_amount(sales_amt),
+                    fmt_amount(0),
+                    fmt_amount(0),
                     fmt_amount(tot),
                     "Credit" if rec_value(r, "ISCREDIT", "ISCREDITTK", default=False) else "Cash"]
             for col, val in enumerate(vals):
                 sort_key = val
-                if col == 0:
+                if col == 1:
                     sort_key = dt or datetime.date.min
-                elif col in (4, 5):
-                    sort_key = float(rec_value(r, "SLSAMT", "SLSAMTTK", default=0) or 0) if col == 4 else tot
+                elif col == 3:
+                    sort_key = sales_amt
+                elif col == 6:
+                    sort_key = tot
                 item = SortableItem(val, sort_key)
-                if col in (4,5): item.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+                if col in (3,4,5,6): item.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.ItemDataRole.UserRole, r.get("_recno"))
                 self.table.setItem(row, col, item)
             shown += 1
         self.table.setSortingEnabled(True)
+        self.table.blockSignals(False)
         self.lbl_status.setText(f"  Bills: {shown}   |   Total Sales: ₹ {fmt_amount(total)}")
-        if self._edit_recno is None:
+        if selected_recno is not None and self._select_record(selected_recno):
+            self._load_selected_entry()
+        elif selected_bill and self._select_bill(selected_bill):
+            self._load_selected_entry()
+        elif self.table.rowCount():
+            self.table.selectRow(0)
+            self._load_selected_entry()
+        else:
             self._reset_entry_form()
 
     def _lookup_party(self):
@@ -2325,27 +2368,87 @@ class SalesModule(ModuleBase):
             self.f_party.setText(dlg.chosen)
 
     def _reset_entry_form(self):
+        self._loading_detail = True
         self._edit_recno = None
+        self.table.clearSelection()
         self.f_billno.setText(next_numeric_code(self._records, "SBILLNO", "SBILLNOTK", width=6))
         self.f_date.setText(datetime.date.today().strftime("%d/%m/%y"))
         self.f_party.clear()
+        self.f_pname.clear()
         self.f_vehicle.clear()
-        self.f_amount.setText("0.00")
-        self.f_credit.setText("N")
+        self.f_salamt.setText("0.00")
+        self.f_totamt.setText("0.00")
+        self.f_credit.setChecked(False)
+        self.f_narr.clear()
+        self.lbl_status.setText("  New sales bill ready.")
+        self._loading_detail = False
         self.f_party.setFocus()
 
-    def _save_inline_entry(self):
+    def _update_party_name(self, text):
+        self.f_pname.setText(self._accounts.get(text.strip().upper(), ""))
+
+    def _select_record(self, recno):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == recno:
+                self.table.selectRow(row)
+                return True
+        return False
+
+    def _select_bill(self, bill_no):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.text().strip() == bill_no:
+                self.table.selectRow(row)
+                return True
+        return False
+
+    def _get_selected(self):
+        row = self.table.currentRow()
+        if row < 0 and self.table.selectedItems():
+            row = self.table.row(self.table.selectedItems()[0])
+        if row < 0:
+            return None, None
+        item = self.table.item(row, 0)
+        recno = item.data(Qt.ItemDataRole.UserRole) if item else None
+        rec = next((r for r in self._records if r.get("_recno") == recno), None)
+        return recno, rec
+
+    def _load_selected_entry(self):
+        if self._loading_detail:
+            return
+        recno, rec = self._get_selected()
+        if not recno or not rec:
+            return
+        self._loading_detail = True
+        dt = rec_value(rec, "RCTDT", "RCTDTOTK", default=None)
+        self._edit_recno = recno
+        self.f_billno.setText(str(rec_value(rec, "SBILLNO", "SBILLNOTK", default="")).strip())
+        self.f_date.setText(dt.strftime("%d/%m/%y") if dt else datetime.date.today().strftime("%d/%m/%y"))
+        self.f_party.setText(str(rec_value(rec, "ACCD", "ACCDOTK", default="")).strip())
+        self.f_vehicle.setText(str(rec_value(rec, "VEHICLENO", "VEHICLENOK", default="")).strip())
+        self.f_salamt.setText(f"{float(rec_value(rec, 'SLSAMT', 'SLSAMTTK', default=0) or 0):.2f}")
+        self.f_totamt.setText(f"{float(rec_value(rec, 'TOTAMT', 'TOTAMTTK', default=0) or 0):.2f}")
+        self.f_credit.setChecked(bool(rec_value(rec, "ISCREDIT", "ISCREDITTK", default=False)))
+        self.f_narr.setText(str(rec_value(rec, "NOTE", "NOTECEK", "NARRTK", default="")).strip())
+        self.lbl_status.setText(
+            f"  Editing Bill {self.f_billno.text().strip()}   Party: {self.f_pname.text().strip() or self.f_party.text().strip()}"
+        )
+        self._loading_detail = False
+
+    def _save_entry(self):
         accd = self.f_party.text().strip().upper()
         if not accd:
             self.lbl_status.setText("  !! Party A/c Code required !!")
             return
         try:
-            amount = float(self.f_amount.text().strip() or 0)
+            sales_amt = float(self.f_salamt.text().strip() or 0)
+            total_amt = float(self.f_totamt.text().strip() or 0)
         except ValueError:
-            self.lbl_status.setText("  !! Invalid amount !!")
+            self.lbl_status.setText("  !! Invalid sales amount !!")
             return
-        if amount <= 0:
-            self.lbl_status.setText("  !! Amount must be greater than 0 !!")
+        if total_amt <= 0:
+            self.lbl_status.setText("  !! Nett amount must be greater than 0 !!")
             return
         qd = parse_date(self.f_date.text().strip()) or datetime.date.today()
         rec = {
@@ -2353,50 +2456,35 @@ class SalesModule(ModuleBase):
             "SBILLNOTK": self.f_billno.text().strip()[:10] or next_numeric_code(self._records, "SBILLNO", "SBILLNOTK", width=6),
             "ACCDOTK": accd[:6],
             "VEHICLENOK": self.f_vehicle.text().strip()[:15],
-            "SLSAMTTK": amount,
-            "TOTAMTTK": amount,
-            "ISCREDITTK": self.f_credit.text().strip().upper().startswith("Y"),
-            "NOTECEK": "",
+            "SLSAMTTK": sales_amt if sales_amt > 0 else total_amt,
+            "TOTAMTTK": total_amt,
+            "ISCREDITTK": self.f_credit.isChecked(),
+            "NOTECEK": self.f_narr.text().strip()[:78],
         }
+        bill_no = rec["SBILLNOTK"]
         ok = update_record("SREG41", self.year, recno=self._edit_recno, updates=rec) if self._edit_recno else write_record("SREG41", self.year, rec)
         if not ok:
             self.lbl_status.setText("  !! Save failed !!")
             return
-        self._reset_entry_form()
+        saved_recno = self._edit_recno
         self.load_data()
-
-    def _get_selected(self):
-        row = self.table.currentRow()
-        if row < 0 and self.table.selectedItems():
-            row = self.table.row(self.table.selectedItems()[0])
-        if row < 0: return None, None
-        item = self.table.item(row,0)
-        recno = item.data(Qt.ItemDataRole.UserRole) if item else None
-        rec = next((r for r in self._records if r.get("_recno")==recno), None)
-        return recno, rec
-
-    def _edit_entry(self, index=None):
-        if index is not None and hasattr(index, "row"):
-            row = index.row()
-            self.table.setCurrentCell(row, 0)
-        recno, rec = self._get_selected()
-        if not recno: QMessageBox.information(self,"","Select a row."); return
-        self._edit_recno = recno
-        dt = rec_value(rec, "RCTDT", "RCTDTOTK", default=None)
-        self.f_billno.setText(str(rec_value(rec, "SBILLNO", "SBILLNOTK", default="")).strip())
-        self.f_date.setText(dt.strftime("%d/%m/%y") if dt else datetime.date.today().strftime("%d/%m/%y"))
-        self.f_party.setText(str(rec_value(rec, "ACCD", "ACCDOTK", default="")).strip())
-        self.f_vehicle.setText(str(rec_value(rec, "VEHICLENO", "VEHICLENOK", default="")).strip())
-        self.f_amount.setText(f"{float(rec_value(rec, 'TOTAMT', 'TOTAMTTK', default=0) or 0):.2f}")
-        self.f_credit.setText("Y" if rec_value(rec, "ISCREDIT", "ISCREDITTK", default=False) else "N")
-        self.lbl_status.setText(f"  Editing Bill {self.f_billno.text().strip()}   Party: {self.f_party.text().strip()}")
+        if saved_recno is not None:
+            self._select_record(saved_recno)
+            self._load_selected_entry()
+        else:
+            self._select_bill(bill_no)
+            self._load_selected_entry()
+        self.lbl_status.setText(f"  Saved Bill {bill_no}")
 
     def _delete_entry(self):
         recno, rec = self._get_selected()
         if not recno: QMessageBox.information(self,"","Select a row."); return
         if QMessageBox.question(self,"Delete","Delete this sales bill?",
            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-            if delete_record("SREG41", self.year, recno=recno): self.load_data()
+            if delete_record("SREG41", self.year, recno=recno):
+                self.load_data()
+                if self.table.rowCount() == 0:
+                    self._reset_entry_form()
             else: QMessageBox.critical(self,"Error","Delete failed.")
 
     def _print(self):
@@ -3460,7 +3548,15 @@ class DosMenuPage(QWidget):
     def _activate_item(self, item):
         handler = item.data(Qt.ItemDataRole.UserRole)
         if callable(handler):
-            handler()
+            try:
+                handler()
+            except Exception as exc:
+                traceback.print_exc()
+                QMessageBox.critical(
+                    self,
+                    "Open Failed",
+                    f"Unable to open '{item.text()}'.\n\n{exc}",
+                )
 
     def _update_preview(self, current, previous):
         if current:

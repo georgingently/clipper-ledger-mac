@@ -1,25 +1,31 @@
 ## Relevant Files
 
-- `georgin_app.py` — contains the PyQt desktop shell, menu list event wiring, entry/report handlers, and the modules for stock/report/master screens.
-- `models/dbf_layer.py` — DBF read/write layer used by all menu destinations; needed to confirm which screens are truly database-backed.
-- `README.md` — may need a small update if behavior changes materially.
-- `tasks/todo.md` — execution tracker for this fix task.
-- `plan.md` — single source of truth for crash/root-cause fixes and verification.
+- `georgin_app.py` — contains the legacy shell, menu activation path, `SalesModule`, and the unused `SalesEntryPage` detail editor.
+- `models/dbf_layer.py` — DBF read/write layer backing `SREG41`; needed to confirm which sales fields can be shown and edited from the database.
+- `plan.md` — single source of truth for the sales detail redesign and crash hardening.
+- `tasks/todo.md` — execution tracker for this fix.
 
 ## Data Flow
 
-1. `MainWindow` instantiates `DosMenuPage`, which exposes a `QListWidget` of actions under Entries / Reports / Utilities / Files / Help / Quit.
-2. Double-clicking a menu item currently routes through Qt slot proxies into `_activate_item`, which then calls a handler like `_open_cash_book`, `_open_bank_book`, `_open_stock_receipt`, or `_open_db_tables`.
-3. Many handlers build a module widget and push it onto the stacked desktop shell. Those modules then load DBF tables through `models/dbf_layer.py`.
-4. `GenericTableModule` is used for Stock Receipt, Stock Issue, Glass Stock, and arbitrary table browsing from Database Tables, so any constructor error there breaks multiple menu paths.
+1. `MainWindow` creates `DosMenuPage`, whose `QListWidget` routes menu activations into handlers like `_open_sales`.
+2. `_open_sales` instantiates `SalesModule`, which reads sales header records from `SREG41`.
+3. `SalesModule` currently renders a top browse table and a lightweight inline form under it; clicking a row only copies a subset of fields into that inline form.
+4. `SalesEntryPage` already exists as a fuller sales editor, but it is not wired into the active sales workflow.
+5. Saving sales edits writes back to `SREG41` through `write_record` / `update_record` in `models/dbf_layer.py`.
 
 ## Constraints & Risks
 
-- The user wants exact legacy parity, but the immediate bug fix must prioritize stability and single-invocation workflow correctness.
-- The crash log points to a Python exception propagating through a Qt slot proxy during a `QListWidget` double-click path; PyQt packaged apps abort on these unhandled slot exceptions.
-- The current menu widget connects both `itemActivated` and `itemDoubleClicked` to the same opener. On macOS this can trigger duplicate opens for the same user action.
-- `GenericTableModule` currently subclasses `QWidget` while using helper methods only defined on `ModuleBase`, creating a likely `AttributeError` when opening stock/generic-table screens.
-- “All options should be linked to the database” means menu targets should open real DBF-backed modules wherever data exists instead of placeholders or broken generic pages.
+- The user wants the sales workflow to behave like the legacy screenshots: selecting a sale should expose the full editable detail area, not just a partial quick form.
+- The current packaged crash traces still terminate inside Qt slot proxies; even when the originating bug is in downstream module construction, an uncaught Python exception in `DosMenuPage._activate_item` can abort the whole packaged app.
+- `SREG41` provides only sales-header fields in the current codebase. There is no existing linked line-item sales table implementation to populate a full item grid from DBF data.
+- Reworking the sales screen must preserve DBF-backed editing and avoid adding placeholder-only UI that cannot save.
+
+## Findings
+
+1. `SalesModule` still connects both `clicked` and `doubleClicked` to `_edit_entry`, and `_edit_entry` only hydrates the small inline form instead of opening a fuller detail section.
+2. The existing `SalesEntryPage` proves the app already has a fuller sales editor shape, but it is effectively dead code in the current user workflow.
+3. `DosMenuPage._activate_item` currently calls handlers directly with no exception guard, which leaves the packaged app vulnerable to fatal aborts whenever a handler raises during a Qt-triggered menu activation.
+4. Offscreen construction of `SalesModule` succeeds with the current repo state, so the remaining crash risk is more likely from slot exception propagation during live activation than from a permanent import-time failure.
 
 ## Open Questions
 
