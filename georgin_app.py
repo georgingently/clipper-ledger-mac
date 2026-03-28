@@ -13,8 +13,11 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QInputDialog, QCheckBox, QListWidget,
     QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QTimer, QDate, QSize, QSortFilterProxyModel
-from PyQt6.QtGui import QFont, QColor, QAction, QKeySequence, QTextDocument, QTextCursor
+from PyQt6.QtCore import Qt, QTimer, QDate, QSize, QSortFilterProxyModel, QRectF, QMarginsF
+from PyQt6.QtGui import (
+    QFont, QColor, QAction, QKeySequence, QTextDocument, QTextCursor,
+    QPainter, QPen, QBrush, QPdfWriter, QPageSize, QPixmap
+)
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 
 import models.dbf_layer as dbf_layer
@@ -44,82 +47,95 @@ APP_VERSION = _read_app_version()
 APP_STYLE = """
 QMainWindow, QWidget {
     background:#000000;
-    color:#e6e6e6;
+    color:#f2f2f2;
     font-size:13px;
     font-family:'Menlo','Courier New',monospace;
 }
-QDialog { background:#000000; color:#e6e6e6; }
-QMenuBar { background:#000000; color:#bbbbbb; padding:2px; }
+QDialog { background:#000000; color:#f2f2f2; }
+QMenuBar { background:#000000; color:#d8d8d8; padding:2px; }
 QMenuBar::item { padding:4px 10px; }
-QMenuBar::item:selected, QMenuBar::item:pressed { background:#660000; color:#ffffff; }
-QMenu { background:#000000; color:#d0d0d0; border:1px solid #bfbfbf; }
+QMenuBar::item:selected, QMenuBar::item:pressed { background:#800000; color:#ffffff; }
+QMenu { background:#000000; color:#efefef; border:2px solid #c9c9c9; }
 QMenu::item { padding:5px 28px 5px 12px; }
-QMenu::item:selected { background:#008080; color:#ffffff; }
-QMenu::separator { height:1px; background:#666666; margin:4px 0; }
+QMenu::item:selected { background:#0f8f96; color:#ffffff; }
+QMenu::separator { height:1px; background:#787878; margin:4px 0; }
 QTableWidget {
     background:#000000;
     alternate-background-color:#000000;
     color:#ffffff;
-    gridline-color:#c0c0c0;
-    selection-background-color:#008080;
+    gridline-color:#d0d0d0;
+    selection-background-color:#0f8f96;
     selection-color:#ffffff;
-    border:1px solid #c0c0c0;
+    border:2px solid #d0d0d0;
+    outline:none;
 }
-QTableWidget::item { padding:4px 8px; }
+QTableWidget::item { padding:5px 8px; }
 QHeaderView::section {
     background:#000000;
     color:#ffffff;
-    font-weight:bold;
-    padding:5px 8px;
+    font-weight:normal;
+    padding:7px 10px;
     border:none;
-    border-right:1px solid #c0c0c0;
-    border-bottom:1px solid #c0c0c0;
+    border-right:2px solid #d0d0d0;
+    border-bottom:2px solid #d0d0d0;
 }
 QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox, QTextEdit {
-    background:#c8c8c8;
+    background:#d4d4d4;
     color:#000000;
-    border:1px solid #c0c0c0;
-    padding:3px 6px;
+    border:2px solid #d0d0d0;
+    padding:4px 6px;
     border-radius:0;
-    selection-background-color:#008080;
+    selection-background-color:#0f8f96;
 }
-QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus { border:2px solid #008080; }
+QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus, QTextEdit:focus { border:2px solid #0f8f96; }
 QLineEdit:read-only { background:#a0a0a0; color:#333; }
-QLabel { color:#e6e6e6; }
+QLabel { color:#f2f2f2; }
 QLabel.title { color:#ffffff; font-size:15px; font-weight:bold; }
 QLabel.section { color:#ffffff; font-weight:bold; }
 QPushButton {
     background:#000000;
-    color:#d0d0d0;
-    border:1px solid #c0c0c0;
-    padding:5px 14px;
+    color:#f0f0f0;
+    border:2px solid #d0d0d0;
+    padding:4px 12px;
     border-radius:0;
     font-size:13px;
     min-width:70px;
 }
-QPushButton:hover { background:#101010; color:#ffffff; }
-QPushButton:pressed { background:#008080; }
-QPushButton.primary { background:#000000; color:#ffffff; border:1px solid #c0c0c0; }
-QPushButton.primary:hover { background:#101010; }
-QPushButton.danger { background:#000000; color:#ffaaaa; border:1px solid #c0c0c0; }
+QPushButton:hover { background:#181818; color:#ffffff; }
+QPushButton:pressed { background:#0f8f96; }
+QPushButton.primary { background:#000000; color:#ffffff; border:2px solid #d0d0d0; }
+QPushButton.primary:hover { background:#181818; }
+QPushButton.danger { background:#000000; color:#ffb0b0; border:2px solid #d0d0d0; }
 QPushButton.danger:hover { background:#330000; color:#ffffff; }
-QStatusBar { background:#000000; color:#ffffff; padding:2px 8px; font-size:12px; border-top:1px solid #c0c0c0; }
-QGroupBox { border:1px solid #c0c0c0; border-radius:0; margin-top:8px; padding-top:8px; color:#e6e6e6; }
-QGroupBox::title { color:#ffffff; subcontrol-origin:margin; subcontrol-position:top center; padding:0 4px; }
+QStatusBar { background:#000000; color:#ffffff; padding:2px 8px; font-size:12px; border-top:2px solid #d0d0d0; }
+QGroupBox {
+    border:2px solid #d0d0d0;
+    border-radius:0;
+    margin-top:14px;
+    padding-top:14px;
+    color:#f2f2f2;
+}
+QGroupBox::title {
+    color:#000000;
+    background:#d0d0d0;
+    subcontrol-origin:margin;
+    subcontrol-position:top center;
+    padding:1px 12px;
+}
 QScrollBar:vertical { background:#000000; width:10px; }
 QScrollBar::handle:vertical { background:#666666; border-radius:0; min-height:20px; }
-QFrame.separator { color:#c0c0c0; }
-QComboBox QAbstractItemView { background:#000000; color:#ffffff; selection-background-color:#008080; }
-QToolBar { background:#000000; border-bottom:1px solid #c0c0c0; spacing:4px; padding:3px; }
+QFrame.separator { color:#d0d0d0; }
+QComboBox QAbstractItemView { background:#000000; color:#ffffff; selection-background-color:#0f8f96; }
+QToolBar { background:#000000; border-bottom:2px solid #d0d0d0; spacing:4px; padding:3px; }
 QToolBar QLabel { color:#aaaaaa; font-size:11px; padding:0 4px; }
 QListWidget {
     background:#000000;
     color:#ffffff;
-    border:1px solid #c0c0c0;
+    border:2px solid #d0d0d0;
     outline:none;
 }
 QListWidget::item {
-    padding:2px 8px;
+    padding:4px 10px;
 }
 QListWidget::item:selected {
     background:#800000;
@@ -248,6 +264,373 @@ def configure_entry_dialog(dialog, min_width=900, min_height=700):
     dialog.setMinimumSize(min_width, min_height)
     dialog.resize(max(min_width, 1200), max(min_height, 820))
     dialog.setWindowState(dialog.windowState() | Qt.WindowState.WindowMaximized)
+
+
+APP_FOOTER_TEXT = "GEORGIN Accounting Package. Developers INFO_NET-Aluva   F1-Help Alt_C-Clc Esc-Exit"
+
+
+def _menu_preview_model(section, item_label):
+    section = (section or "").upper()
+    item_label = (item_label or "").upper()
+    if section == "ENTRIES" and item_label == "CASH BOOK":
+        return [
+            ("Select Book", [
+                "CASH BOOK",
+                "CASH (CREDIT SALES)",
+                "GEORGIN GLASS WORK",
+                "FEDERAL BANK KALADY G",
+                "BELORA FEDERAL BANK LOAN A/C",
+            ], 0)
+        ]
+    if section == "ENTRIES" and item_label == "BANK BOOK":
+        return [
+            ("Select Book", [
+                "EKM DIST.CO BANK 006241000008839 KLD",
+                "FEDERAL BANK BOLERO CAR LOAN",
+                "FEDERAL BANK KALADY",
+                "BANK OF INDIA KALADY",
+                "SBT,KALADY GEN",
+                "BANK OF INDIA PBR",
+            ], 0)
+        ]
+    if section == "REPORTS" and item_label in {"ACCOUNT LEDGER", "LEDGER"}:
+        return [
+            ("Option(s)", ["GENERAL", "CUSTOMERS", "SUPPLIERS"], 0),
+            ("Parameter(s)", [
+                "Code From :        ",
+                "To        :        ",
+                "Date From :  /  /  ",
+                "To        :  /  /  ",
+                "Page No.  : 1      ",
+                "Compact (Y/N): Y   ",
+            ], -1),
+        ]
+    if section == "REPORTS" and item_label == "TRIAL BALANCE":
+        return [
+            ("Options", ["General", "Customer", "Supplier", "Combined"], 3),
+            ("Parameters", [
+                "From : 01/04/25",
+                "To   : 28/03/26",
+                "Zero Balance: N",
+            ], -1),
+        ]
+    if section == "FILES":
+        return [
+            ("Master", [
+                "A/c   Master",
+                "Group Master",
+                "Agent Master",
+                "Item  Master",
+                "I.Grp Master",
+                "Tax   Master",
+            ], 0)
+        ]
+    return []
+
+
+WORKFLOW_REFERENCE_SCREENS = [
+    {
+        "title": "MAIN MENU",
+        "menu": ["Cash Book", "Bank Book", "Purchase", "Sales", "Journals", "Stock Receipt", "Stock Issue", "Glass Stock"],
+        "selected": 0,
+        "boxes": [],
+        "footer": APP_FOOTER_TEXT,
+    },
+    {
+        "title": "CASH BOOK",
+        "menu": ["Cash Book", "Bank Book", "Purchase", "Sales", "Journals", "Stock Receipt", "Stock Issue", "Glass Stock"],
+        "selected": 0,
+        "boxes": [("Select Book", [
+            "CASH BOOK",
+            "CASH (CREDIT SALES)",
+            "GEORGIN GLASS WORK",
+            "FEDERAL BANK KALADY G",
+            "BELORA FEDERAL BANK LOAN A/C",
+        ], 0)],
+        "footer": APP_FOOTER_TEXT,
+    },
+    {
+        "title": "CASH BOOK",
+        "table_headers": ["Date", "Vr.No.", "A/c CD", "A/c Name", "Receipt", "Payment"],
+        "table_rows": [
+            ["25/03/26", "00207", "5AN001", "AQURIUM  ANIL 9809271003", "500.00", ""],
+            ["25/03/26", "01313", "1BSBT1", "S.B.T  67010468481 GENTLY8205", "", "6.00"],
+            ["25/03/26", "01314", "44MEER", "MEERA  -9495587107", "", "550.00"],
+            ["26/03/26", "01360", "300001", "SALES", "20.00", ""],
+            ["27/03/26", "01369", "300001", "SALES", "200.00", ""],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Go Date F5-Receipt F6-Qck_Del",
+    },
+    {
+        "title": "EDITING",
+        "table_headers": ["Date", "A/c.Code", "Narration", "Rct. Amt.", "Pyt. Amt."],
+        "table_rows": [["25/03/26", "5AN001", "ANIL", "500.00", "0.00"]],
+        "footer": APP_FOOTER_TEXT,
+    },
+    {
+        "title": "PURCHASE",
+        "table_headers": ["Serial", "Rct.Date", "Bill No", "B.Date", "Party Name", "Amount"],
+        "table_rows": [
+            ["000123", "30/01/26", "", "30/01/26", "6XATOZ A TO Z 9037778893/4", "60.00"],
+            ["000124", "06/02/26", "", "06/02/26", "GLASS HOUSE-KALADY 2462928", "80735.00"],
+            ["000125", "07/02/26", "", "07/02/26", "AMBOOKEN AGENCIS 8138051116", "999.00"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Search Bill F5-Print F6-VAT_Reg.",
+    },
+    {
+        "title": "SALES",
+        "table_headers": ["Bill", "Date", "Party", "Sls. Amt", "Add", "Less", "Nett Amt", "Type"],
+        "table_rows": [
+            ["001362", "26/03/26", "5XMATH", "7424.00", "0.00", "0.00", "7424.00", "Credit"],
+            ["001363", "26/03/26", "5XJOHN", "3840.00", "0.00", "0.00", "3840.00", "Credit"],
+            ["001369", "27/03/26", "100001", "200.00", "0.00", "0.00", "200.00", "Cash"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-No. 2-Dt F5-Copy F6-Reg. F7-Qck_Del F8-updt",
+    },
+    {
+        "title": "JOURNAL",
+        "table_headers": ["Vr. No", "Sr#", "Date", "A/c Head", "Debit", "Credit"],
+        "table_rows": [
+            ["000001", "1", "10/04/25", "G.G ELE CHITTIKULANGARA", "", "891.00"],
+            ["000001", "2", "10/04/25", "BAD DEBTS", "891.00", ""],
+            ["000002", "1", "24/04/25", "JOHNSON AGE-PALKULANGARA", "", "28.00"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Bill 2-Date F5-Print",
+    },
+    {
+        "title": "STOCK RECEIPT",
+        "table_headers": ["Vr.No", "Date", "Description", "Amount"],
+        "table_rows": [
+            ["000002", "28/04/25", "lock return", "650.00"],
+            ["000003", "09/05/25", "mkt", "55148.25"],
+            ["000004", "29/05/25", "stock mirror", "34011.00"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Date",
+    },
+    {
+        "title": "ACCOUNT MASTER",
+        "table_headers": ["Code", "Account Head", "Grp", "Op. Balance", "Cur. Bal"],
+        "table_rows": [
+            ["6XLAND", "LANDMARK 8594001359 NEDU-PAPER", "6000", "0.00", "0.00"],
+            ["6XMAGL", "MA GLASS HW ASHIEF-9847751932", "6001", "0.00", "2,740.00 CR"],
+            ["6XMEPO", "M.E. POLYMERS-7907216811", "6001", "0.00", "0.00"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Name 2-Code",
+    },
+    {
+        "title": "ITEM MASTER",
+        "table_headers": ["Code", "Description", "Unit", "Op.Stock", "C.Price", "D.Price"],
+        "table_rows": [
+            ["-POLIS", "GLASS POLISH POWDER", "NOS", "1.00", "0.00", "0.00"],
+            ["-XFLAP", "FLAP WHEEL", "NOS", "10.00", "0.00", "0.00"],
+            ["11BE00", "11BE00 BELL 32MM BR 1-1/4", "NOS", "34.00", "120.00", "0.00"],
+        ],
+        "footer": "F10-Add F2-Edit F3-List F4-Del 1-Description 2-Code",
+    },
+    {
+        "title": "PERFECT REPORT VIEWER",
+        "table_headers": ["DATE", "PARTICULARS", "DEBIT", "CREDIT", "BALANCE"],
+        "table_rows": [
+            ["01/04/25", "Opening Balance b/f", "6185.00", "", "6185.00 DR"],
+            ["01/04/25", "kma", "", "500.00", "5685.00 DR"],
+            ["01/04/25", "james", "", "1000.00", "4685.00 DR"],
+        ],
+        "footer": "1/7718 Report Compiled    Alt_N/Alt_P-Print    Alt_E-Export    Esc-Exit",
+    },
+]
+
+
+def _draw_legacy_header(painter, rect, company_text):
+    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+    painter.drawRect(rect)
+    now = datetime.datetime.now()
+    painter.drawText(QRectF(rect.left() + 18, rect.top(), rect.width() * 0.33, rect.height()),
+                     Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                     now.strftime("%B %d, %Y"))
+    painter.drawText(QRectF(rect.left(), rect.top(), rect.width(), rect.height()),
+                     Qt.AlignmentFlag.AlignCenter,
+                     company_text)
+    painter.drawText(QRectF(rect.right() - rect.width() * 0.24, rect.top(), rect.width() * 0.22, rect.height()),
+                     Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+                     now.strftime("%H:%M:%S"))
+
+
+def _draw_legacy_title_tab(painter, top_y, width, title):
+    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+    line_y = top_y + 18
+    painter.drawLine(10, line_y, int(width - 10), line_y)
+    tab_width = min(320, max(140, len(title) * 14))
+    tab_rect = QRectF((width - tab_width) / 2, top_y, tab_width, 34)
+    painter.fillRect(tab_rect, QColor("#d0d0d0"))
+    painter.setPen(QColor("#000000"))
+    painter.drawText(tab_rect, Qt.AlignmentFlag.AlignCenter, title)
+    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+
+
+def _draw_legacy_box(painter, rect, title, lines, selected_index=None):
+    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+    painter.drawRect(rect)
+    if title:
+        title_rect = QRectF(rect.left() + 16, rect.top() - 20, min(rect.width() - 32, max(120, len(title) * 13)), 32)
+        painter.fillRect(title_rect, QColor("#0f8f96"))
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, title)
+        painter.setPen(QPen(QColor("#d0d0d0"), 2))
+    line_height = 28
+    y = rect.top() + 16
+    for idx, line in enumerate(lines):
+        row_rect = QRectF(rect.left() + 12, y, rect.width() - 24, line_height)
+        if selected_index == idx:
+            painter.fillRect(row_rect, QColor("#0f8f96" if title.lower().startswith("select") else "#800000"))
+            painter.setPen(QColor("#ffffff"))
+        else:
+            painter.setPen(QColor("#f0f0f0"))
+        painter.drawText(row_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, line)
+        y += line_height + 6
+    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+
+
+def export_workflow_pdf(parent, company_text, output_path=None):
+    filename = output_path
+    if not filename:
+        filename, _ = QFileDialog.getSaveFileName(
+            parent,
+            "Save Workflow PDF",
+            "georgin_legacy_workflow.pdf",
+            "PDF (*.pdf)",
+        )
+    if not filename:
+        return None
+    writer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    writer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+    writer.setOutputFileName(filename)
+    writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    painter = QPainter(writer)
+    try:
+        page_rect = writer.pageRect(QPrinter.Unit.DevicePixel)
+        width = page_rect.width()
+        height = page_rect.height()
+        font = QFont("Courier New", 14)
+        painter.setFont(font)
+        for index, screen in enumerate(WORKFLOW_REFERENCE_SCREENS):
+            painter.fillRect(QRectF(0, 0, width, height), QColor("#000000"))
+            painter.setPen(QColor("#ffffff"))
+            _draw_legacy_header(painter, QRectF(14, 14, width - 28, 80), company_text)
+            if screen.get("menu"):
+                painter.setPen(QColor("#d0d0d0"))
+                menu_y = 130
+                painter.drawLine(12, menu_y + 14, int(width - 12), menu_y + 14)
+                sections = ["Entries", "Reports", "Utilities", "Files", "Help", "Quit"]
+                x = 36
+                for label in sections:
+                    painter.drawText(QRectF(x, menu_y, 180, 28), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label)
+                    x += 190
+            _draw_legacy_title_tab(painter, 156, width, screen["title"])
+            if screen.get("menu"):
+                _draw_legacy_box(
+                    painter,
+                    QRectF(54, 222, 250, 330),
+                    "",
+                    screen["menu"],
+                    screen.get("selected", 0),
+                )
+                x = 380
+                for title, lines, selected in screen.get("boxes", []):
+                    box_height = 56 + len(lines) * 34
+                    _draw_legacy_box(painter, QRectF(x, 266, width - x - 72, box_height), title, lines, selected)
+                    x += 40
+            else:
+                table_rect = QRectF(12, 196, width - 24, height - 330)
+                painter.setPen(QPen(QColor("#d0d0d0"), 2))
+                painter.drawRect(table_rect)
+                headers = screen.get("table_headers", [])
+                rows = screen.get("table_rows", [])
+                if headers:
+                    col_width = table_rect.width() / len(headers)
+                    y = table_rect.top() + 14
+                    painter.setPen(QColor("#ffffff"))
+                    for idx, header in enumerate(headers):
+                        head_rect = QRectF(table_rect.left() + idx * col_width, y, col_width, 28)
+                        painter.drawText(head_rect.adjusted(8, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, header)
+                    painter.setPen(QPen(QColor("#d0d0d0"), 2))
+                    painter.drawLine(int(table_rect.left()), int(y + 40), int(table_rect.right()), int(y + 40))
+                    row_y = y + 52
+                    for row in rows:
+                        for idx, value in enumerate(row):
+                            cell_rect = QRectF(table_rect.left() + idx * col_width, row_y, col_width, 28)
+                            align = Qt.AlignmentFlag.AlignVCenter | (Qt.AlignmentFlag.AlignRight if idx == len(row) - 1 else Qt.AlignmentFlag.AlignLeft)
+                            painter.setPen(QColor("#ffffff"))
+                            painter.drawText(cell_rect.adjusted(8, 0, -8, 0), align, value)
+                        row_y += 34
+            footer_rect = QRectF(12, height - 96, width - 24, 72)
+            painter.setPen(QPen(QColor("#d0d0d0"), 2))
+            painter.drawRect(footer_rect)
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(footer_rect.adjusted(18, 0, -18, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, screen["footer"])
+            if index < len(WORKFLOW_REFERENCE_SCREENS) - 1:
+                writer.newPage()
+    finally:
+        painter.end()
+    if parent is not None and output_path is None:
+        QMessageBox.information(parent, "Saved", f"Workflow PDF saved:\n{filename}")
+    return filename
+
+
+class LegacyFooter(QWidget):
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(86)
+        self.setStyleSheet("background:#000000;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self.box = QLabel(text)
+        self.box.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.box.setStyleSheet(
+            "border:2px solid #d0d0d0; padding:10px 18px; color:#ffffff; font-size:17px; background:#000000;"
+        )
+        layout.addWidget(self.box)
+
+    def set_text(self, text):
+        self.box.setText(text)
+
+
+class LegacyPreviewWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.section = "Entries"
+        self.item_label = "Cash Book"
+        self.setMinimumWidth(520)
+
+    def set_preview(self, section, item_label):
+        self.section = section
+        self.item_label = item_label
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.fillRect(self.rect(), QColor("#000000"))
+        painter.setFont(QFont("Courier New", 13))
+        painter.setPen(QPen(QColor("#d0d0d0"), 2))
+        title = (self.item_label or self.section or "").upper()
+        _draw_legacy_title_tab(painter, 16, self.width(), title)
+        model = _menu_preview_model(self.section, self.item_label)
+        if not model:
+            painter.setPen(QColor("#7f7f7f"))
+            painter.drawText(QRectF(24, 86, self.width() - 48, 40), Qt.AlignmentFlag.AlignLeft, "Workflow preview")
+            painter.end()
+            return
+        x = 40
+        y = 112
+        for box_index, (box_title, lines, selected_index) in enumerate(model):
+            box_width = min(360, self.width() - x - 36)
+            box_height = max(120, 44 + len(lines) * 34)
+            if box_index > 0:
+                y += 42
+                x += 80
+            _draw_legacy_box(painter, QRectF(x, y, box_width, box_height), box_title, lines, selected_index)
+        painter.end()
 
 
 class SortableItem(QTableWidgetItem):
@@ -1246,13 +1629,29 @@ class ModuleBase(QWidget):
         btn = QPushButton(f"{icon} {label}".strip())
         if cls: btn.setProperty("class", cls)
         if shortcut: btn.setShortcut(shortcut)
-        btn.setFixedHeight(28)
+        btn.setFixedHeight(30)
         return btn
 
     def _title_bar(self, title):
+        wrapper = QWidget()
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        left = QFrame()
+        left.setFrameShape(QFrame.Shape.HLine)
+        left.setStyleSheet("color:#d0d0d0;")
+        right = QFrame()
+        right.setFrameShape(QFrame.Shape.HLine)
+        right.setStyleSheet("color:#d0d0d0;")
         lbl = QLabel(title)
-        lbl.setStyleSheet("font-size:15px;font-weight:bold;color:#00c8ff;padding:4px 0;")
-        return lbl
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(
+            "font-size:18px; color:#000000; background:#d0d0d0; padding:2px 14px; border:2px solid #d0d0d0;"
+        )
+        layout.addWidget(left, 1)
+        layout.addWidget(lbl)
+        layout.addWidget(right, 1)
+        return wrapper
 
     def _search_box(self, placeholder="Search…"):
         box = QLineEdit(); box.setPlaceholderText(placeholder)
@@ -1276,10 +1675,17 @@ class ModuleBase(QWidget):
     def _clipper_group(self, title):
         group = QGroupBox(title)
         group.setStyleSheet(
-            "QGroupBox { border:1px solid #c0c0c0; margin-top:10px; padding-top:10px; } "
-            "QGroupBox::title { color:#ffffff; subcontrol-origin: margin; subcontrol-position: top center; padding:0 6px; }"
+            "QGroupBox { border:2px solid #d0d0d0; margin-top:14px; padding-top:16px; } "
+            "QGroupBox::title { color:#000000; background:#d0d0d0; subcontrol-origin: margin; "
+            "subcontrol-position: top center; padding:1px 12px; }"
         )
         return group
+
+    def _footer_bar(self, text):
+        bar = QLabel(text)
+        bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar.setStyleSheet("color:#ffffff; font-size:16px; padding:10px 8px 4px 8px;")
+        return bar
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1344,6 +1750,7 @@ class CashBankBookModule(ModuleBase):
         btn_row.addStretch()
         form.addLayout(btn_row, 2, 0, 1, 5)
         layout.addWidget(entry_group)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-Go Date  F5-Receipt  F6-Qck_Del"))
 
         self.lbl_status = QLabel("")
         self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
@@ -1577,6 +1984,7 @@ class JournalModule(ModuleBase):
         btns.addStretch()
         form.addLayout(btns, 2, 0, 1, 6)
         layout.addWidget(entry_group)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-Bill  2-Date  F5-Print"))
 
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
         layout.addWidget(self.lbl_status)
@@ -1831,6 +2239,7 @@ class SalesModule(ModuleBase):
         btns.addStretch()
         form.addLayout(btns, 2, 0, 1, 6)
         layout.addWidget(entry_group)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-No.  2-Dt  F5-Copy  F6-Reg.  F7-Qck_Del  F8-updt"))
 
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:2px;")
         layout.addWidget(self.lbl_status)
@@ -2026,6 +2435,7 @@ class PurchaseModule(ModuleBase):
         btns.addStretch()
         form.addLayout(btns, 2, 0, 1, 6)
         layout.addWidget(entry_group)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-Search Bill  F5-Print  F6-VAT_Reg."))
 
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
         layout.addWidget(self.lbl_status)
@@ -2182,6 +2592,7 @@ class TrialBalanceModule(ModuleBase):
         self.table.setColumnWidth(2,120); self.table.setColumnWidth(3,120)
         self.table.setColumnWidth(4,120); self.table.setColumnWidth(5,120); self.table.setColumnWidth(6,60)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("Alt_N/Alt_P-Print  Alt_E-Export  Esc-Exit"))
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
         layout.addWidget(self.lbl_status)
 
@@ -2286,6 +2697,7 @@ class LedgerModule(ModuleBase):
         self.table.setColumnWidth(0,90); self.table.setColumnWidth(1,60); self.table.setColumnWidth(2,90)
         self.table.setColumnWidth(3,230); self.table.setColumnWidth(4,110); self.table.setColumnWidth(5,110); self.table.setColumnWidth(6,120)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("Alt_N/Alt_P-Print  Alt_E-Export  Esc-Exit"))
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
         layout.addWidget(self.lbl_status)
 
@@ -2446,6 +2858,7 @@ class OutstandingModule(ModuleBase):
         for w,c in [(55,0),(100,1),(90,2),(80,3),(200,4),(110,5),(110,6),(110,7)]:
             self.table.setColumnWidth(c,w)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("Alt_N/Alt_P-Print  Alt_E-Export  Esc-Exit"))
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
         layout.addWidget(self.lbl_status)
         self.btn_print.clicked.connect(self._print); self.btn_pdf.clicked.connect(self._pdf); self.btn_csv.clicked.connect(self._csv)
@@ -2522,6 +2935,7 @@ class AccountMasterModule(ModuleBase):
         self.table.setColumnWidth(4,130); self.table.setColumnWidth(5,130)
         self.table.doubleClicked.connect(self._edit)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-Name  2-Code"))
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
         layout.addWidget(self.lbl_status)
 
@@ -2607,6 +3021,7 @@ class ItemMasterModule(ModuleBase):
         self.table.setColumnWidth(0,80); self.table.setColumnWidth(1,280); self.table.setColumnWidth(2,60)
         for c in (3,4,5,6): self.table.setColumnWidth(c,110)
         layout.addWidget(self.table)
+        layout.addWidget(self._footer_bar("F10-Add  F2-Edit  F3-List  F4-Del  1-Description  2-Code"))
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#888;font-size:12px;padding:2px;")
         layout.addWidget(self.lbl_status)
         self.btn_print.clicked.connect(self._print); self.btn_pdf.clicked.connect(self._pdf); self.btn_csv.clicked.connect(self._csv)
@@ -2923,6 +3338,7 @@ class DosMenuPage(QWidget):
             "Utilities": [
                 ("Change Year", handlers["change_year"]),
                 ("Change Data Folder", handlers["change_data_folder"]),
+                ("Workflow PDF", handlers["workflow_pdf"]),
                 ("Backup", handlers["backup"]),
                 ("Restore", handlers["restore"]),
             ],
@@ -2942,6 +3358,7 @@ class DosMenuPage(QWidget):
         }
         self.nav_buttons = {}
         self.current_section = "Entries"
+        self.current_item_label = "Cash Book"
         self._build_ui()
         self.set_company_year(company, year)
         self._show_section(self.current_section)
@@ -2952,51 +3369,48 @@ class DosMenuPage(QWidget):
         layout.setSpacing(0)
 
         nav = QWidget()
-        nav.setStyleSheet("border-top:1px solid #c0c0c0; border-bottom:1px solid #c0c0c0;")
+        nav.setStyleSheet("border-top:2px solid #d0d0d0; border-bottom:2px solid #d0d0d0;")
         nav_layout = QHBoxLayout(nav)
-        nav_layout.setContentsMargins(8, 6, 8, 6)
+        nav_layout.setContentsMargins(12, 10, 12, 10)
         nav_layout.setSpacing(0)
         for section in self.section_order:
             button = QPushButton(section)
             button.setFlat(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda _, s=section: self._show_section(s))
-            button.setStyleSheet("border:none; padding:0 22px; font-size:17px; color:#e6e6e6;")
+            button.setStyleSheet("border:none; padding:0 22px; font-size:20px; color:#e6e6e6;")
             self.nav_buttons[section] = button
             nav_layout.addWidget(button)
             if section != self.section_order[-1]:
                 line = QLabel("────")
-                line.setStyleSheet("color:#bfbfbf;")
+                line.setStyleSheet("color:#d0d0d0; font-size:18px;")
                 nav_layout.addWidget(line)
         nav_layout.addStretch()
         layout.addWidget(nav)
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(24, 18, 24, 18)
-        body_layout.setSpacing(18)
+        body_layout.setContentsMargins(24, 22, 24, 8)
+        body_layout.setSpacing(30)
 
         self.menu_list = QListWidget()
-        self.menu_list.setFixedWidth(280)
+        self.menu_list.setFixedWidth(320)
         self.menu_list.itemActivated.connect(self._activate_item)
         self.menu_list.itemDoubleClicked.connect(self._activate_item)
+        self.menu_list.currentItemChanged.connect(self._update_preview)
         body_layout.addWidget(self.menu_list, alignment=Qt.AlignmentFlag.AlignTop)
 
-        self.right_panel = QLabel("")
-        self.right_panel.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.right_panel.setStyleSheet(
-            "border:1px solid #c0c0c0; padding:16px; font-size:18px; color:#f0f0f0;"
-        )
-        body_layout.addWidget(self.right_panel, 1)
+        self.preview = LegacyPreviewWidget()
+        body_layout.addWidget(self.preview, 1)
         layout.addWidget(body, 1)
 
     def _show_section(self, section):
         self.current_section = section
         for name, button in self.nav_buttons.items():
             if name == section:
-                button.setStyleSheet("border:none; padding:0 22px; font-size:17px; color:#ffffff; background:#800000;")
+                button.setStyleSheet("border:none; padding:0 22px; font-size:20px; color:#ffffff; background:#800000;")
             else:
-                button.setStyleSheet("border:none; padding:0 22px; font-size:17px; color:#e6e6e6; background:transparent;")
+                button.setStyleSheet("border:none; padding:0 22px; font-size:20px; color:#e6e6e6; background:transparent;")
 
         self.menu_list.clear()
         for label, handler in self.section_items[section]:
@@ -3005,12 +3419,18 @@ class DosMenuPage(QWidget):
             self.menu_list.addItem(item)
         if self.menu_list.count():
             self.menu_list.setCurrentRow(0)
-        self.right_panel.setText(f"{section}\n\nSelect an item from the left panel.")
+            self.current_item_label = self.menu_list.item(0).text()
+        self.preview.set_preview(self.current_section, self.current_item_label)
 
     def _activate_item(self, item):
         handler = item.data(Qt.ItemDataRole.UserRole)
         if callable(handler):
             handler()
+
+    def _update_preview(self, current, previous):
+        if current:
+            self.current_item_label = current.text()
+            self.preview.set_preview(self.current_section, self.current_item_label)
 
     def set_company_year(self, company, year):
         self.company = company
@@ -3023,16 +3443,24 @@ class DosMenuPage(QWidget):
 class HeaderBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(58)
-        self.setStyleSheet("background:#000000;border-bottom:1px solid #c0c0c0;")
-        layout = QHBoxLayout(self); layout.setContentsMargins(22,8,22,8)
-        self.lbl_date = QLabel(); self.lbl_date.setStyleSheet("color:#f0f0f0;font-size:19px;")
-        self.lbl_company = QLabel(); self.lbl_company.setStyleSheet("color:#ffffff;font-size:19px;font-weight:bold;")
+        self.setFixedHeight(112)
+        self.setStyleSheet("background:#000000;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 8)
+        self.frame = QFrame()
+        self.frame.setStyleSheet("border:2px solid #d0d0d0; background:#000000;")
+        frame_layout = QHBoxLayout(self.frame)
+        frame_layout.setContentsMargins(26, 16, 26, 16)
+        self.lbl_date = QLabel(); self.lbl_date.setStyleSheet("color:#f0f0f0;font-size:22px;")
+        self.lbl_company = QLabel(); self.lbl_company.setStyleSheet("color:#ffffff;font-size:24px;font-weight:bold;")
         self.lbl_company.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_time = QLabel(); self.lbl_time.setStyleSheet("color:#f0f0f0;font-size:19px;")
-        layout.addWidget(self.lbl_date)
-        layout.addStretch(); layout.addWidget(self.lbl_company); layout.addStretch()
-        layout.addWidget(self.lbl_time)
+        self.lbl_time = QLabel(); self.lbl_time.setStyleSheet("color:#f0f0f0;font-size:22px;")
+        frame_layout.addWidget(self.lbl_date)
+        frame_layout.addStretch()
+        frame_layout.addWidget(self.lbl_company)
+        frame_layout.addStretch()
+        frame_layout.addWidget(self.lbl_time)
+        layout.addWidget(self.frame)
         timer = QTimer(self); timer.timeout.connect(self._update); timer.start(1000)
         self._update()
 
@@ -3071,15 +3499,15 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.header)
 
         nav_bar = QWidget()
-        nav_bar.setStyleSheet("background:#000000;border-bottom:1px solid #c0c0c0;")
+        nav_bar.setStyleSheet("background:#000000;border-bottom:2px solid #d0d0d0;")
         nav_layout = QHBoxLayout(nav_bar)
-        nav_layout.setContentsMargins(10, 6, 10, 6)
-        self.btn_back = QPushButton("Back")
+        nav_layout.setContentsMargins(12, 6, 12, 6)
+        self.btn_back = QPushButton("Esc-Back")
         self.btn_back.clicked.connect(self._go_back)
         self.btn_back.setVisible(False)
         nav_layout.addWidget(self.btn_back)
         self.lbl_page = QLabel("Home")
-        self.lbl_page.setStyleSheet("font-size:13px;font-weight:bold;color:#c8c8c8;")
+        self.lbl_page.setStyleSheet("font-size:14px;font-weight:bold;color:#c8c8c8;")
         nav_layout.addWidget(self.lbl_page)
         nav_layout.addStretch()
         main_layout.addWidget(nav_bar)
@@ -3113,6 +3541,7 @@ class MainWindow(QMainWindow):
                 "address_book": self._open_address_book,
                 "change_year": self._change_year,
                 "change_data_folder": self._change_data_folder,
+                "workflow_pdf": self._export_workflow_pdf,
                 "backup": self._backup_data,
                 "restore": self._restore_data,
                 "about": self._about,
@@ -3124,8 +3553,10 @@ class MainWindow(QMainWindow):
 
         # Status bar
         self.setStatusBar(QStatusBar())
-        self.statusBar().setStyleSheet("background:#000000;color:#ffffff;font-size:12px;border-top:1px solid #c0c0c0;")
+        self.statusBar().setStyleSheet("background:#000000;color:#ffffff;font-size:12px;border-top:2px solid #d0d0d0;")
         self._set_status("Ready")
+        self.footer = LegacyFooter(APP_FOOTER_TEXT)
+        main_layout.addWidget(self.footer)
 
     def _set_status(self, message):
         self.statusBar().showMessage(f"  Year: {self.year}   |   Data: {dbf_layer.DATA_DIR}   |   {message}")
@@ -3314,6 +3745,9 @@ class MainWindow(QMainWindow):
             "Built with Python + PyQt6<br>"
             "Data: CA-Clipper DBF format<br><br>"
             f"Data directory:<br>{dbf_layer.DATA_DIR}")
+
+    def _export_workflow_pdf(self):
+        export_workflow_pdf(self, self.company)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

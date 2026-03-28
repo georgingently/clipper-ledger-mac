@@ -32,8 +32,10 @@ The desktop app includes:
 
 - Entry modules for Cash Book, Bank Book, Sales, Purchase, and Journal
 - Clipper-style navigation for Entries, Reports, Utilities, Files, Help, and Quit
+- Legacy DOS/Clipper-inspired window framing to keep the on-screen workflow visually close to the original GEORGIN screens
 - Report and master-data screens for key legacy tables
 - A generic database table browser so uncovered DBF families remain reachable
+- Workflow PDF export for sharing recreated legacy screen flows as a single document
 - macOS app packaging and DMG release automation
 
 ## Repository Structure
