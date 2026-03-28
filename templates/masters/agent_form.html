@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ action }} Agent — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-person-plus"></i> {{ action }} Agent</h5>
+  <a href="/masters/agents" class="btn btn-sm btn-outline-secondary">Back</a>
+</div>
+<div class="card" style="max-width:450px">
+  <div class="card-body">
+    <form method="post">
+      <div class="mb-3">
+        <label class="form-label">Agent Code *</label>
+        <input type="text" name="agcd" class="form-control form-control-sm upper" value="{{ agent.AGCD or '' }}" maxlength="6" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Agent Name *</label>
+        <input type="text" name="agnm" class="form-control form-control-sm upper" value="{{ agent.AGNM or '' }}" maxlength="30" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Account</label>
+        <select name="accd" class="form-select form-select-sm">
+          <option value="">-- None --</option>
+          {% for a in acmst_list %}
+          <option value="{{ a.AC_CODE }}" {% if a.AC_CODE|trim == (agent.ACCD or '')|trim %}selected{% endif %}>
+            {{ a.AC_CODE }} — {{ a.AC_HEAD }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Phone</label>
+        <input type="text" name="phone" class="form-control form-control-sm" value="{{ agent.PHONE or '' }}" maxlength="15">
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> Save</button>
+      <a href="/masters/agents" class="btn btn-secondary btn-sm ms-2">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

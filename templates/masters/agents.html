@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Agents — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-person-badge"></i> Agent Master</h5>
+  <a href="/masters/agents/add" class="btn btn-sm btn-primary no-print"><i class="bi bi-plus-lg"></i> Add Agent</a>
+</div>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Code</th><th>Name</th><th>Account</th><th>Account Name</th><th>Phone</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr>
+        <td><code>{{ r.AGCD }}</code></td>
+        <td>{{ r.AGNM }}</td>
+        <td><code>{{ r.ACCD }}</code></td>
+        <td>{{ r._ac_name }}</td>
+        <td>{{ r.PHONE }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center text-muted py-3">No agents found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

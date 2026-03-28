@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Item-wise Sales — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Item-wise Sales Analysis <span class="badge bg-secondary">{{ rows|length }} items</span></h5>
+  <button onclick="window.print()" class="btn btn-sm btn-outline-dark no-print"><i class="bi bi-printer"></i></button>
+</div>
+<form class="row g-2 mb-3 no-print" method="get">
+  <div class="col-auto"><input type="text" name="from_dt" value="{{ from_dt }}" class="form-control form-control-sm" placeholder="From DD-MM-YYYY" style="width:140px"></div>
+  <div class="col-auto"><input type="text" name="to_dt" value="{{ to_dt }}" class="form-control form-control-sm" placeholder="To DD-MM-YYYY" style="width:140px"></div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel"></i> Filter</button>
+    <a href="/sales/itemwise" class="btn btn-sm btn-outline-secondary">Reset</a>
+  </div>
+</form>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>#</th><th>Item Code</th><th>Item Name</th><th class="text-end">Total Qty</th><th class="text-end">Total Value</th><th class="text-end">Bills</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><code>{{ r.itcd }}</code></td>
+        <td><a href="/masters/items/view/{{ r.itcd }}">{{ r.name }}</a></td>
+        <td class="amount">{{ r._qty_fmt }}</td>
+        <td class="amount fw-bold">{{ r._val_fmt }}</td>
+        <td class="text-center">{{ r.count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-center text-muted py-4">No data found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

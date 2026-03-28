@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Group Master — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Group Master</h5>
+  <a href="/accounts/groups/add" class="btn btn-sm btn-primary no-print"><i class="bi bi-plus-lg"></i> Add Group</a>
+</div>
+<div class="card" style="max-width:500px">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Group Code</th><th>Group Name</th><th class="no-print">Actions</th></tr></thead>
+      <tbody>
+      {% for g in groups %}
+      <tr>
+        <td><code>{{ g.GRCD }}</code></td>
+        <td>{{ g.GRHD }}</td>
+        <td class="no-print">
+          <a href="/accounts/groups/edit/{{ g.GRCD }}" class="btn btn-sm btn-outline-secondary" style="padding:1px 6px;font-size:0.72rem">Edit</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="text-center text-muted py-3">No groups found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

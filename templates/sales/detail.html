@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Bill {{ bill.SBILLNOTK }} — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-receipt"></i> Sales Bill — {{ bill.SBILLNOTK }}</h5>
+  <div class="no-print">
+    <button onclick="window.print()" class="btn btn-sm btn-outline-dark"><i class="bi bi-printer"></i></button>
+    <a href="/sales/" class="btn btn-sm btn-outline-secondary">Back</a>
+  </div>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-2"><strong>Bill Details</strong></div>
+      <div class="card-body py-2">
+        <table class="table table-sm mb-0">
+          <tr><th width="140">Bill No</th><td>{{ bill.SBILLNOTK }}</td></tr>
+          <tr><th>Date</th><td>{{ bill._date_fmt }}</td></tr>
+          <tr><th>Party</th><td><code>{{ bill.ACCDOTK }}</code> {{ bill._ac_name }}</td></tr>
+          <tr><th>Vehicle No</th><td>{{ bill.VEHICLENOK }}</td></tr>
+          <tr><th>Bill Time</th><td>{{ bill.BILLTIMEK }}</td></tr>
+          <tr><th>Credit/Cash</th><td><span class="badge {% if bill.ISCREDITTK %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ 'Credit' if bill.ISCREDITTK else 'Cash' }}</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header py-2"><strong>Amounts</strong></div>
+      <div class="card-body py-2">
+        <table class="table table-sm mb-0">
+          <tr><th width="160">Sales Amount</th><td class="amount">{{ bill._slsamt_fmt }}</td></tr>
+          <tr><th>Add Amount</th><td class="amount">{{ fmt_amount(bill.ADDAMTTK) }}</td></tr>
+          <tr><th>Less Amount</th><td class="amount">{{ fmt_amount(bill.LESSAMTTK) }}</td></tr>
+          <tr><th>Advance</th><td class="amount">{{ fmt_amount(bill.ADVANCEK) }}</td></tr>
+          <tr><th>CESS</th><td class="amount">{{ fmt_amount(bill.CESSSK) }}</td></tr>
+          <tr class="table-active"><th><strong>Total Amount</strong></th><td class="amount fw-bold">{{ bill._totamt_fmt }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-header py-2"><strong>Line Items ({{ lines|length }})</strong></div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>#</th><th>Item Code</th><th>Item Name</th><th class="text-end">Qty</th><th class="text-end">Rate</th><th class="text-end">Value</th><th>Tax %</th><th>Remark</th></tr></thead>
+      <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>{{ line.SRNO }}</td>
+        <td><code>{{ line.PRODCD }}</code></td>
+        <td>{{ line._item_name }}</td>
+        <td class="amount">{{ "%.3f"|format(line.NETQTY|float) }}</td>
+        <td class="amount">{{ line._rate_fmt }}</td>
+        <td class="amount fw-bold">{{ line._value_fmt }}</td>
+        <td>{{ line.TAX }}</td>
+        <td>{{ line.REMARK }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-3">No line items</td></tr>
+      {% endfor %}
+      </tbody>
+      {% if lines %}
+      <tfoot><tr class="table-secondary">
+        <td colspan="5" class="text-end fw-bold">Total:</td>
+        <td class="amount fw-bold">{{ fmt_amount(lines|sum(attribute='VALUE')) }}</td>
+        <td colspan="2"></td>
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

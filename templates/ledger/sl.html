@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Sub Ledger — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-journal"></i> Sub Ledger <span class="badge bg-secondary">{{ records|length }}</span></h5>
+  <button onclick="window.print()" class="btn btn-sm btn-outline-dark no-print"><i class="bi bi-printer"></i></button>
+</div>
+<form class="row g-2 mb-3 no-print" method="get">
+  <div class="col-auto">
+    <select name="accd" class="form-select form-select-sm" style="width:260px">
+      <option value="">— All Accounts —</option>
+      {% for a in acmst_list %}
+      <option value="{{ a.AC_CODE }}" {% if a.AC_CODE|trim == accd %}selected{% endif %}>
+        {{ a.AC_CODE }} — {{ a.AC_HEAD }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <input type="text" name="from_dt" value="{{ from_dt }}" class="form-control form-control-sm" placeholder="From DD-MM-YYYY" style="width:140px">
+  </div>
+  <div class="col-auto">
+    <input type="text" name="to_dt" value="{{ to_dt }}" class="form-control form-control-sm" placeholder="To DD-MM-YYYY" style="width:140px">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel"></i> Filter</button>
+    <a href="/ledger/sl" class="btn btn-sm btn-outline-secondary">Reset</a>
+  </div>
+</form>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Date</th><th>Account</th><th>Account Name</th><th>Doc</th>
+        <th>Voucher</th><th>Narration</th>
+        <th class="text-end">Amount</th><th>Dr/Cr</th><th class="text-end">Running Bal</th>
+      </tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r._date_fmt }}</td>
+        <td><code>{{ r.ACCD }}</code></td>
+        <td>{{ r._ac_name }}</td>
+        <td>{{ r._doc_name or r.DOCD }}</td>
+        <td>{{ r.VRNO }}</td>
+        <td class="text-truncate" style="max-width:200px" title="{{ r.NARR }}">{{ r.NARR }}</td>
+        <td class="amount">{{ r._amt_fmt }}</td>
+        <td><span class="badge {% if r.DRCR=='D' %}bg-danger{% else %}bg-success{% endif %}">{{ r.DRCR }}</span></td>
+        <td class="amount {% if r._running < 0 %}text-success{% else %}text-danger{% endif %}">
+          {{ fmt_amount(r._running|abs) }} {{ 'Cr' if r._running < 0 else 'Dr' }}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-muted py-4">No records found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

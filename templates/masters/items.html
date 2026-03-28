@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Item Master — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-box-seam"></i> Item Master <span class="badge bg-secondary">{{ records|length }}</span></h5>
+  <button onclick="window.print()" class="btn btn-sm btn-outline-dark no-print"><i class="bi bi-printer"></i></button>
+</div>
+<form class="row g-2 mb-3 no-print" method="get">
+  <div class="col-auto"><input type="text" name="q" value="{{ search }}" class="form-control form-control-sm upper" placeholder="Search code / name…" style="width:220px"></div>
+  <div class="col-auto">
+    <select name="type" class="form-select form-select-sm">
+      <option value="">— All Types —</option>
+      <option value="S" {% if itype=='S' %}selected{% endif %}>S — Stock</option>
+      <option value="N" {% if itype=='N' %}selected{% endif %}>N — Non-stock</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-search"></i> Search</button>
+    <a href="/masters/items" class="btn btn-sm btn-outline-secondary">Reset</a>
+  </div>
+</form>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Group</th><th class="text-end">Op.Stock</th><th class="text-end">Cur.Stock</th><th class="text-end">Sale Rate</th><th class="text-end">Pur Rate</th><th>Type</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr>
+        <td><a href="/masters/items/view/{{ r.ITCD }}"><code>{{ r.ITCD }}</code></a></td>
+        <td>{{ r.ITDESC }}</td>
+        <td>{{ r.UNIT }}</td>
+        <td>{{ r.GNAME }}</td>
+        <td class="amount">{{ r._opstk_fmt }}</td>
+        <td class="amount {% if r.CURQTY|float < 0 %}text-danger{% endif %}">{{ r._curqty_fmt }}</td>
+        <td class="amount">{{ r._salrate_fmt }}</td>
+        <td class="amount">{{ r._purrate_fmt }}</td>
+        <td><span class="badge bg-secondary">{{ r.TYPE }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-muted py-4">No items found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

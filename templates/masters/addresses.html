@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Address Book — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-book"></i> Address Book <span class="badge bg-secondary">{{ records|length }}</span></h5>
+  <button onclick="window.print()" class="btn btn-sm btn-outline-dark no-print"><i class="bi bi-printer"></i></button>
+</div>
+<form class="row g-2 mb-3 no-print" method="get">
+  <div class="col-auto"><input type="text" name="q" value="{{ search }}" class="form-control form-control-sm upper" placeholder="Search name / place / mobile…" style="width:260px"></div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-search"></i> Search</button>
+    {% if search %}<a href="/masters/addresses" class="btn btn-sm btn-outline-danger">Clear</a>{% endif %}
+  </div>
+</form>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>#</th><th>Name</th><th>Address</th><th>Place</th><th>PIN</th><th>Phone (O)</th><th>Mobile</th><th>Category</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.SLNO }}</td>
+        <td>{{ r.NAME }}</td>
+        <td>{{ r.ADDRESS1 }}{% if r.ADDRESS2 %}, {{ r.ADDRESS2 }}{% endif %}</td>
+        <td>{{ r.PLACE }}</td>
+        <td>{{ r.PIN }}</td>
+        <td>{{ r.PHONEO }}</td>
+        <td>{{ r.MOBILE }}</td>
+        <td><span class="badge bg-secondary">{{ r.CATEGORY }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-4">No addresses found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

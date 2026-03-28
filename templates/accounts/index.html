@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Account Master — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-people"></i> Account Master <span class="badge bg-secondary">{{ accounts|length }}</span></h5>
+  <a href="/accounts/add" class="btn btn-sm btn-primary no-print"><i class="bi bi-plus-lg"></i> Add Account</a>
+</div>
+<form class="row g-2 mb-3 no-print" method="get">
+  <div class="col-auto">
+    <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm upper" placeholder="Search code / name / city…" style="width:280px">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
+    {% if search %}<a href="/accounts/" class="btn btn-sm btn-outline-danger">Clear</a>{% endif %}
+  </div>
+</form>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Code</th><th>Account Name</th><th>Group</th><th>City</th>
+        <th class="text-end">Op. Balance</th><th class="text-end">Cur. Balance</th>
+        <th class="text-end">Budget</th><th class="no-print">Actions</th>
+      </tr></thead>
+      <tbody>
+      {% for a in accounts %}
+      <tr>
+        <td><code>{{ a.AC_CODE }}</code></td>
+        <td><a href="/accounts/view/{{ a.AC_CODE|urlencode }}">{{ a.AC_HEAD }}</a></td>
+        <td><span class="badge bg-secondary">{{ a.AC_GRCD }}</span> {{ a._group_name }}</td>
+        <td>{{ a.CITY }}</td>
+        <td class="amount">{{ a._yearop_fmt }}</td>
+        <td class="amount">{{ a._curbal_fmt }}</td>
+        <td class="amount">{{ a._budget_fmt if a._budget_fmt else '—' }}</td>
+        <td class="no-print">
+          <a href="/accounts/edit/{{ a.AC_CODE|urlencode }}" class="btn btn-xs btn-outline-secondary" style="padding:1px 6px;font-size:0.72rem">Edit</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center text-muted py-4">No accounts found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

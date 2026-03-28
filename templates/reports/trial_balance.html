@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Trial Balance — GEORGIN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-table"></i> Trial Balance</h5>
+  <button onclick="window.print()" class="btn btn-sm btn-outline-dark no-print"><i class="bi bi-printer"></i></button>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-auto"><div class="card border-danger px-3 py-2"><small class="text-muted">Total Debit</small><div class="fw-bold text-danger amount fs-5">{{ total_dr }}</div></div></div>
+  <div class="col-auto"><div class="card border-success px-3 py-2"><small class="text-muted">Total Credit</small><div class="fw-bold text-success amount fs-5">{{ total_cr }}</div></div></div>
+</div>
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Code</th><th>Account Name</th><th>Group</th><th class="text-end">Opening Bal</th><th class="text-end">GL Movement</th><th class="text-end">Balance</th><th>Dr/Cr</th></tr></thead>
+      <tbody>
+      {% set ns = namespace(grp='') %}
+      {% for r in rows %}
+        {% if r.group != ns.grp %}
+          {% set ns.grp = r.group %}
+          <tr class="table-light"><td colspan="7"><strong>{{ r.group }}</strong></td></tr>
+        {% endif %}
+        <tr>
+          <td><code>{{ r.code }}</code></td>
+          <td>{{ r.head }}</td>
+          <td></td>
+          <td class="amount">{{ fmt_amount(r.yearop) }}</td>
+          <td class="amount {% if r.gl_movement < 0 %}text-success{% else %}text-danger{% endif %}">{{ fmt_amount(r.gl_movement) }}</td>
+          <td class="amount fw-bold">{{ r._bal_fmt }}</td>
+          <td><span class="badge {% if r._drcr=='Dr' %}bg-danger{% else %}bg-success{% endif %}">{{ r._drcr }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No data</td></tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="table-secondary fw-bold">
+          <td colspan="5" class="text-end">Totals:</td>
+          <td class="amount text-danger">{{ total_dr }}</td>
+          <td class="text-success amount">{{ total_cr }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endblock %}
