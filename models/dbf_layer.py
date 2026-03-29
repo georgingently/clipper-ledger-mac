@@ -262,6 +262,34 @@ def delete_record(table_name, year="current", recno=None):
         return False
 
 
+def delete_records(table_name, year="current", filters=None):
+    """Soft-delete every record in a DBF file matching simple equality filters."""
+    if not filters:
+        return 0
+    import dbf as dbflib
+    path = dbf_path(table_name, year)
+    if not os.path.exists(path):
+        return 0
+    try:
+        table = dbflib.Table(path, codepage="cp1252")
+        table.open(mode=dbflib.READ_WRITE)
+        deleted = 0
+        for record in table:
+            matches = True
+            for key, expected in filters.items():
+                actual = record[key]
+                if str(actual or "").strip() != str(expected or "").strip():
+                    matches = False
+                    break
+            if matches:
+                dbflib.delete(record)
+                deleted += 1
+        table.close()
+        return deleted
+    except Exception:
+        return 0
+
+
 DEFAULT_YEAR = "B1"  # Most recently updated year prefix
 
 def get_available_years():
