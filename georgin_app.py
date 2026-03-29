@@ -4638,7 +4638,42 @@ class TrialBalanceModule(ModuleBase):
 class LedgerModule(ModuleBase):
     def __init__(self, year, company, parent=None):
         super().__init__(year, company, parent)
-        self._accounts = get_accounts_dict(year)
+        account_rows = read_table("ACMST", year)
+        self._accounts = {
+            str(r.get("AC_CODE", "")).strip().upper(): str(r.get("AC_HEAD", "")).strip()
+            for r in account_rows
+        }
+        self._account_entries = _make_lookup_entries(
+            {
+                "code": str(r.get("AC_CODE", "")).strip(),
+                "name": str(r.get("AC_HEAD", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("CITY", "")).strip(),
+                        str(r.get("PHONE", "")).strip(),
+                        str(r.get("KGSTNO", "")).strip(),
+                    ] if part
+                ),
+                "headers": ["Code", "Account Name", "City", "Phone", "Balance", "GST"],
+                "columns": [
+                    str(r.get("AC_CODE", "")).strip(),
+                    str(r.get("AC_HEAD", "")).strip(),
+                    str(r.get("CITY", "")).strip(),
+                    str(r.get("PHONE", "")).strip(),
+                    fmt_amount(r.get("CURBAL", 0)),
+                    str(r.get("KGSTNO", "")).strip(),
+                ],
+                "display": (
+                    f"{str(r.get('AC_CODE', '')).strip():<10}  "
+                    f"{str(r.get('AC_HEAD', '')).strip():<36}  "
+                    f"{str(r.get('CITY', '')).strip():<14}  "
+                    f"{str(r.get('PHONE', '')).strip():<14}  "
+                    f"Bal {fmt_amount(r.get('CURBAL', 0)):<12}  "
+                    f"{str(r.get('KGSTNO', '')).strip():<16}"
+                ),
+            }
+            for r in account_rows
+        )
         self._build_ui()
 
     def _build_ui(self):
@@ -4678,7 +4713,33 @@ class LedgerModule(ModuleBase):
         layout.addWidget(self.lbl_status)
 
         self.btn_print.clicked.connect(self._print); self.btn_pdf.clicked.connect(self._pdf); self.btn_csv.clicked.connect(self._csv)
+        self.f_accd.textChanged.connect(self._update_account_name)
         self.f_accd.returnPressed.connect(self.load_data)
+        self._attach_account_completer(self.f_accd)
+
+    def _attach_account_completer(self, widget):
+        def _pick(display):
+            resolved = _resolve_lookup_value(display, self._account_entries)
+            if resolved:
+                widget.setText(resolved["code"])
+                self._update_account_name(resolved["code"])
+
+        _attach_lookup_completer(widget, self._account_entries, _pick)
+
+    def _resolve_account_code(self, widget):
+        resolved = _resolve_lookup_value(widget.text(), self._account_entries)
+        if resolved:
+            widget.setText(resolved["code"])
+            return resolved["code"]
+        return widget.text().strip().upper()
+
+    def _update_account_name(self, text):
+        resolved = _resolve_lookup_value(text, self._account_entries)
+        if resolved:
+            self.lbl_acname.setText(resolved["name"])
+            return
+        code = str(text or "").strip().upper()
+        self.lbl_acname.setText(self._accounts.get(code, ""))
 
     def _lookup(self):
         dlg = AccountLookupDialog(self.year, self)
@@ -4687,7 +4748,7 @@ class LedgerModule(ModuleBase):
             self.load_data()
 
     def load_data(self):
-        code = self.f_accd.text().strip().upper()
+        code = self._resolve_account_code(self.f_accd)
         if not code: QMessageBox.information(self,"","Enter or select an Account Code first."); return
         self.lbl_acname.setText(self._accounts.get(code,"Unknown Account"))
         self.table.setSortingEnabled(False); self.table.setRowCount(0)
