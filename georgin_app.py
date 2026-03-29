@@ -662,6 +662,83 @@ def _default_download_target(download_url):
     return os.path.join(downloads_dir, filename)
 
 
+def _auto_install_dmg(dmg_path):
+    """
+    Mount the DMG, copy the app to /Applications, remove quarantine, unmount.
+    Returns (success: bool, error_message: str).
+    """
+    import tempfile, time as _time
+    mount_point = None
+    try:
+        # Mount the DMG silently
+        result = subprocess.run(
+            ["hdiutil", "attach", "-nobrowse", "-quiet", dmg_path],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return False, f"Could not mount the installer:\n{result.stderr.strip()}"
+
+        # Find the mounted app — try up to 10 seconds
+        app_src = None
+        for _ in range(10):
+            app_src = subprocess.run(
+                ["find", "/Volumes", "-maxdepth", "2",
+                 "-name", "GEORGIN Accounting.app", "-print", "-quit"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+            if app_src:
+                break
+            _time.sleep(1)
+
+        if not app_src:
+            return False, "Could not find the app inside the mounted DMG."
+
+        mount_point = os.path.dirname(app_src)
+        dest = "/Applications/GEORGIN Accounting.app"
+
+        # Remove old version
+        subprocess.run(["rm", "-rf", dest], check=False, timeout=30)
+
+        # Copy new version
+        result = subprocess.run(
+            ["cp", "-R", app_src, dest],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return False, f"Could not copy app to Applications:\n{result.stderr.strip()}"
+
+        # Remove quarantine flag
+        subprocess.run(
+            ["xattr", "-dr", "com.apple.quarantine", dest],
+            check=False, timeout=15,
+        )
+        return True, ""
+
+    except subprocess.TimeoutExpired:
+        return False, "Installation timed out."
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        # Always try to unmount
+        if mount_point:
+            try:
+                subprocess.run(
+                    ["hdiutil", "detach", mount_point, "-force"],
+                    check=False, timeout=20, capture_output=True,
+                )
+            except Exception:
+                pass
+
+
+def _relaunch_app():
+    """Quit this process and reopen the installed app."""
+    try:
+        subprocess.Popen(["open", "/Applications/GEORGIN Accounting.app"])
+    except Exception:
+        pass
+    QApplication.quit()
+
+
 APP_FOOTER_TEXT = "GEORGIN Accounting Package. Developers INFO_NET-Aluva   F1-Help Alt_C-Clc Esc-Exit"
 
 
@@ -5762,6 +5839,7 @@ class MainWindow(QMainWindow):
             "<b>GEORGIN Accounting System</b><br>Mac Desktop Edition<br><br>"
             f"Version: {APP_VERSION}<br><br>"
             "Built with Python + PyQt6<br>"
+            "Test updater channel enabled<br>"
             "Data: CA-Clipper DBF format<br><br>"
             f"Data directory:<br>{dbf_layer.DATA_DIR}")
 
@@ -5831,19 +5909,38 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
+        self.statusBar().showMessage("Update downloaded. Installing...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        install_ok = False
+        install_error = ""
         try:
-            subprocess.run(["open", target], check=False)
-        except Exception:
-            pass
-        self.statusBar().showMessage(f"Update downloaded: {target}")
-        QMessageBox.information(
-            self,
-            "Update Downloaded",
-            (
-                f"The new installer has been downloaded to:\n{target}\n\n"
-                "Open the DMG and replace the app in Applications."
-            ),
-        )
+            install_ok, install_error = _auto_install_dmg(target)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if install_ok:
+            QMessageBox.information(
+                self,
+                "Update Installed",
+                "The update has been installed.\n\nThe app will now restart.",
+            )
+            _relaunch_app()
+        else:
+            # Fallback: open the DMG for manual install
+            try:
+                subprocess.run(["open", target], check=False)
+            except Exception:
+                pass
+            QMessageBox.information(
+                self,
+                "Update Downloaded",
+                (
+                    f"The update was downloaded but could not be installed automatically.\n\n"
+                    f"{install_error}\n\n"
+                    f"The DMG has been opened — drag the app to Applications and relaunch.\n\n"
+                    f"File: {target}"
+                ),
+            )
 
     def _export_workflow_pdf(self):
         export_workflow_pdf(self, self.company)
