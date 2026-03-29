@@ -41,6 +41,15 @@ else
   /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $APP_VERSION" "$APP_PLIST"
 fi
 
+echo "Re-signing app bundle after Info.plist update..."
+xattr -cr "dist/$APP_BUNDLE"
+codesign \
+  --force \
+  --deep \
+  --sign - \
+  --timestamp=none \
+  "dist/$APP_BUNDLE"
+
 echo "Preparing DMG contents..."
 mkdir -p "$STAGING_DIR"
 cp -R "dist/$APP_BUNDLE" "$STAGING_DIR/"

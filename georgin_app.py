@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """GEORGIN Accounting System — Complete Mac Desktop Application (PyQt6)"""
-import sys, os, csv, datetime, shutil, traceback
+import sys, os, csv, datetime, shutil, traceback, html, inspect, subprocess, urllib.request, urllib.error, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PyQt6 import sip
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QDialog, QDialogButtonBox,
@@ -11,11 +12,11 @@ from PyQt6.QtWidgets import (
     QMenuBar, QMenu, QStatusBar, QToolBar, QFrame, QSplitter,
     QStackedWidget, QGroupBox, QScrollArea, QTextEdit, QSizePolicy,
     QMessageBox, QFileDialog, QInputDialog, QCheckBox, QListWidget,
-    QListWidgetItem, QCompleter
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QTimer, QDate, QSize, QSortFilterProxyModel, QRectF, QMarginsF
 from PyQt6.QtGui import (
-    QFont, QColor, QAction, QKeySequence, QTextDocument, QTextCursor,
+    QFont, QColor, QAction, QKeySequence, QTextDocument, QTextCursor, QShortcut,
     QPainter, QPen, QBrush, QPdfWriter, QPageSize, QPixmap
 )
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
@@ -24,7 +25,8 @@ import models.dbf_layer as dbf_layer
 from models.dbf_layer import (
     read_table, write_record, update_record, delete_record, delete_records,
     count_records, fmt_amount, fmt_date, parse_date, get_available_years,
-    set_data_dir, find_data_dir, get_table_fields, list_table_bases
+    set_data_dir, find_data_dir, get_table_fields, list_table_bases, get_branch_list,
+    get_last_error
 )
 
 
@@ -40,6 +42,9 @@ def _read_app_version():
 
 
 APP_VERSION = _read_app_version()
+UPDATE_FEED_URL = "https://georgingently.github.io/clipper-ledger-mac/version.json"
+DEFAULT_RELEASE_DOWNLOAD_URL = "https://github.com/georgingently/clipper-ledger-mac/releases/latest/download/GEORGIN_Accounting_Installer.dmg"
+DEFAULT_RELEASES_PAGE_URL = "https://github.com/georgingently/clipper-ledger-mac/releases/latest"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THEME
@@ -154,6 +159,44 @@ def get_company_info(year):
             return f"{name}  {opdt.year}-{cldt.year}" if opdt and cldt else name
     return year
 
+
+def get_company_profile(year, fallback=""):
+    for record in get_branch_list():
+        if str(record.get("BRCOD", "")).strip() != str(year).strip():
+            continue
+        name = str(record.get("BRNAME", "")).strip() or str(fallback or year).strip()
+        address_parts = [
+            str(record.get("BRAD1", "")).strip(),
+            str(record.get("BRAD2", "")).strip(),
+            str(record.get("BRAD3", "")).strip(),
+        ]
+        phone = str(record.get("BRPH", "")).strip()
+        tax_parts = [
+            f"KGST: {str(record.get('KGSTNO', '')).strip()}" if str(record.get("KGSTNO", "")).strip() and str(record.get("KGSTNO", "")).strip() != "---" else "",
+            f"CST: {str(record.get('CSTNO', '')).strip()}" if str(record.get("CSTNO", "")).strip() else "",
+        ]
+        period = ""
+        opdt = record.get("YEROPDT")
+        cldt = record.get("YERCLDT")
+        if opdt and cldt:
+            period = f"{opdt.strftime('%d/%m/%Y')} - {cldt.strftime('%d/%m/%Y')}"
+        lines = [part for part in address_parts if part]
+        if phone:
+            lines.append(f"Phone: {phone}")
+        taxes = "   ".join(part for part in tax_parts if part)
+        if taxes:
+            lines.append(taxes)
+        if period:
+            lines.append(f"Period: {period}")
+        return {
+            "name": name,
+            "lines": lines,
+        }
+    return {
+        "name": str(fallback or year).strip(),
+        "lines": [],
+    }
+
 def get_books(year):
     return [(str(r.get("DOCD","")).strip(), str(r.get("DESC","")).strip(),
              str(r.get("SHFM","")).strip(), str(r.get("ACCD","")).strip())
@@ -207,7 +250,7 @@ def get_cbk_file(docd):
     return f"CBK{str(docd).zfill(2)}"
 
 def get_accounts_dict(year):
-    return {str(r.get("AC_CODE","")).strip(): str(r.get("AC_HEAD","")).strip()
+    return {str(r.get("AC_CODE","")).strip().upper(): str(r.get("AC_HEAD","")).strip()
             for r in read_table("ACMST", year)}
 
 def cash_balance(year, docd):
@@ -284,14 +327,35 @@ def _resolve_lookup_value(text, options):
     for option in options:
         code = option["code"].upper()
         name = option["name"].upper()
-        if query == code or query == name:
+        display = option.get("display", "").upper()
+        search = option.get("search", "").upper()
+        if query == code or query == name or query == display or query == search:
             return option
     for option in options:
         code = option["code"].upper()
         name = option["name"].upper()
-        if query in code or query in name:
+        display = option.get("display", "").upper()
+        search = option.get("search", "").upper()
+        if query in code or query in name or query in display or query in search:
             return option
     return None
+
+
+def _lookup_matches(text, options):
+    query = str(text or "").strip().upper()
+    if not query:
+        return []
+    matches = []
+    for option in options:
+        code = option["code"].upper()
+        name = option["name"].upper()
+        display = option.get("display", "").upper()
+        search = option.get("search", "").upper()
+        if query == code or query == name or query == display or query == search:
+            return [option]
+        if query in code or query in name or query in display or query in search:
+            matches.append(option)
+    return matches
 
 
 def _make_lookup_entries(records):
@@ -301,32 +365,178 @@ def _make_lookup_entries(records):
         if not code:
             continue
         name = str(record.get("name", "")).strip()
+        details = str(record.get("details", "")).strip()
+        display = str(record.get("display", f"{code}  {name}")).strip()
         entries.append({
             "code": code,
             "name": name,
-            "display": f"{code}  {name}".strip(),
+            "details": details,
+            "display": display,
+            "columns": list(record.get("columns", [code, name, details])),
+            "headers": list(record.get("headers", ["Code", "Name", "Details"])),
+            "search": "  ".join(part for part in [code, name, details, display] if part).strip(),
         })
     entries.sort(key=lambda item: item["display"].upper())
     return entries
 
 
-def _attach_lookup_completer(line_edit, entries, on_pick):
-    completer = QCompleter([entry["display"] for entry in entries], line_edit)
-    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-    completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-    completer.setFilterMode(Qt.MatchFlag.MatchContains)
-    line_edit.setCompleter(completer)
+class _LookupPopup(QFrame):
+    def __init__(self, line_edit, entries, on_pick):
+        super().__init__(line_edit.window(), Qt.WindowType.Popup)
+        self._line_edit = line_edit
+        self._entries = list(entries)
+        self._on_pick = on_pick
+        self._current_matches = []
+        self.setObjectName("LookupPopup")
+        self.setStyleSheet(
+            "#LookupPopup { background:#000000; border:2px solid #d0d0d0; }"
+            "QHeaderView::section { background:#101010; color:#ffffff; border:none; border-right:1px solid #555; padding:6px 8px; }"
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+        self._table = QTableWidget(0, 1, self)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setShowGrid(False)
+        self._table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._table.setMouseTracking(True)
+        self._table.installEventFilter(self)
+        self._table.viewport().installEventFilter(self)
+        self._table.cellDoubleClicked.connect(lambda row, _col: self._choose_row(row))
+        self._table.cellClicked.connect(lambda row, _col: self._choose_row(row))
+        layout.addWidget(self._table)
+        line_edit.installEventFilter(self)
+        line_edit.textEdited.connect(self._show_for_text)
 
-    def _complete_if_needed(text):
-        if not text.strip():
-            completer.popup().hide()
+    def _show_for_text(self, text):
+        matches = _lookup_matches(text, self._entries)[:80]
+        if not text.strip() or not matches:
+            self.hide()
             return
-        completer.setCompletionPrefix(text)
-        completer.complete()
+        self._current_matches = matches
+        headers = matches[0].get("headers") or ["Code", "Name", "Details"]
+        self._table.clear()
+        self._table.setColumnCount(len(headers))
+        self._table.setHorizontalHeaderLabels(headers)
+        self._table.setRowCount(len(matches))
+        for row, entry in enumerate(matches):
+            for col, value in enumerate(entry.get("columns", [])):
+                item = QTableWidgetItem(str(value))
+                self._table.setItem(row, col, item)
+        self._table.resizeColumnsToContents()
+        self._table.selectRow(0)
+        self._position_popup()
+        self.show()
+        self.raise_()
 
-    completer.activated.connect(on_pick)
-    line_edit.textEdited.connect(_complete_if_needed)
-    return completer
+    def _position_popup(self):
+        global_pos = self._line_edit.mapToGlobal(self._line_edit.rect().bottomLeft())
+        widths = [self._table.columnWidth(col) for col in range(self._table.columnCount())]
+        popup_width = max(self._line_edit.width() + 240, min(sum(widths) + 60, 1260), 920)
+        row_count = max(1, min(len(self._current_matches), 12))
+        row_height = self._table.verticalHeader().defaultSectionSize() or 26
+        header_height = self._table.horizontalHeader().height() or 28
+        popup_height = max(320, min(header_height + row_count * row_height + 24, 460))
+        self.setGeometry(global_pos.x(), global_pos.y() + 2, popup_width, popup_height)
+
+    def _move_selection(self, step):
+        if not self.isVisible() or not self._current_matches:
+            return
+        row = self._table.currentRow()
+        if row < 0:
+            row = 0
+        row = max(0, min(len(self._current_matches) - 1, row + step))
+        self._table.selectRow(row)
+        self._table.scrollToItem(self._table.item(row, 0))
+
+    def _choose_row(self, row=None):
+        if row is None:
+            row = self._table.currentRow()
+        if row < 0 or row >= len(self._current_matches):
+            self.hide()
+            return
+        entry = self._current_matches[row]
+        self.hide()
+        try:
+            self._on_pick(entry["display"])
+        except Exception as exc:
+            traceback.print_exc()
+            QMessageBox.critical(self._line_edit.window(), "Lookup Failed", f"Lookup selection failed.\n\n{exc}")
+
+    def eventFilter(self, obj, event):
+        if obj is self._line_edit and event.type() == _QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Down:
+                if not self.isVisible():
+                    self._show_for_text(self._line_edit.text())
+                else:
+                    self._move_selection(1)
+                return True
+            if event.key() == Qt.Key.Key_Up and self.isVisible():
+                self._move_selection(-1)
+                return True
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.isVisible():
+                self._choose_row()
+                return True
+            if event.key() == Qt.Key.Key_Escape and self.isVisible():
+                self.hide()
+                return True
+        if obj is self._table and event.type() == _QEvent.Type.KeyPress and self.isVisible():
+            if event.key() == Qt.Key.Key_Down:
+                self._move_selection(1)
+                return True
+            if event.key() == Qt.Key.Key_Up:
+                self._move_selection(-1)
+                return True
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._choose_row()
+                return True
+            if event.key() == Qt.Key.Key_Escape:
+                self.hide()
+                self._line_edit.setFocus()
+                return True
+        if obj is self._line_edit and event.type() == _QEvent.Type.FocusOut and self.isVisible():
+            def _hide_if_inactive():
+                focus_widget = QApplication.focusWidget()
+                if focus_widget in (self._line_edit, self._table, self._table.viewport()):
+                    return
+                self.hide()
+            QTimer.singleShot(250, _hide_if_inactive)
+        if obj is self._table.viewport() and event.type() == _QEvent.Type.MouseButtonPress:
+            index = self._table.indexAt(event.pos())
+            if index.isValid():
+                self._choose_row(index.row())
+                return True
+        return super().eventFilter(obj, event)
+
+
+def _attach_lookup_completer(line_edit, entries, on_pick):
+    popup = _LookupPopup(line_edit, entries, on_pick)
+    line_edit._lookup_popup = popup
+    return popup
+
+
+def _safe_ui_slot(owner, callback, label="Action"):
+    def _wrapped(*args, **kwargs):
+        try:
+            try:
+                inspect.signature(callback).bind_partial(*args, **kwargs)
+                return callback(*args, **kwargs)
+            except TypeError:
+                inspect.signature(callback).bind_partial()
+                return callback()
+        except Exception as exc:
+            traceback.print_exc()
+            if hasattr(owner, "lbl_status") and owner.lbl_status is not None:
+                owner.lbl_status.setText(f"  !! {label} failed: {exc} !!")
+            QMessageBox.critical(owner, f"{label} Failed", f"{label} failed.\n\n{exc}")
+            return None
+    return _wrapped
 
 
 def rec_value(record, *keys, default=""):
@@ -344,6 +554,40 @@ def configure_entry_dialog(dialog, min_width=900, min_height=700):
     dialog.setMinimumSize(min_width, min_height)
     dialog.resize(max(min_width, 1200), max(min_height, 820))
     dialog.setWindowState(dialog.windowState() | Qt.WindowState.WindowMaximized)
+
+
+def _version_tuple(text):
+    parts = []
+    for token in str(text or "").strip().split("."):
+        digits = "".join(ch for ch in token if ch.isdigit())
+        parts.append(int(digits or 0))
+    return tuple(parts or [0])
+
+
+def _fetch_update_metadata(url=UPDATE_FEED_URL):
+    req = urllib.request.Request(url, headers={"User-Agent": f"GEORGIN/{APP_VERSION}"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        payload = resp.read().decode("utf-8")
+    data = _json.loads(payload)
+    if not isinstance(data, dict):
+        raise ValueError("Update feed is not a JSON object.")
+    version = str(data.get("version", "")).strip()
+    if not version:
+        raise ValueError("Update feed is missing 'version'.")
+    download_url = str(data.get("download_url", "")).strip() or DEFAULT_RELEASE_DOWNLOAD_URL
+    notes = str(data.get("notes", "")).strip()
+    return {
+        "version": version,
+        "download_url": download_url,
+        "notes": notes,
+    }
+
+
+def _default_download_target(download_url):
+    filename = os.path.basename(urllib.parse.urlparse(download_url).path) or "GEORGIN_Update.dmg"
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+    return os.path.join(downloads_dir, filename)
 
 
 APP_FOOTER_TEXT = "GEORGIN Accounting Package. Developers INFO_NET-Aluva   F1-Help Alt_C-Clc Esc-Exit"
@@ -741,8 +985,8 @@ class _ReturnFilter(_QObject):
     def eventFilter(self, obj, event):
         if event.type() == _QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                completer = getattr(obj, "completer", lambda: None)()
-                if completer and completer.popup() and completer.popup().isVisible():
+                lookup_popup = getattr(obj, "_lookup_popup", None)
+                if lookup_popup and lookup_popup.isVisible():
                     return False
                 self._cb()
                 return True
@@ -752,23 +996,26 @@ class _ReturnFilter(_QObject):
 # PRINT / EXPORT HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 def _make_html(title, company, headers, rows, totals_row=None):
-    th = "".join(f"<th>{h}</th>" for h in headers)
+    profile = company if isinstance(company, dict) else {"name": str(company), "lines": []}
+    company_name = html.escape(profile.get("name", ""))
+    company_lines = "".join(f"<div>{html.escape(line)}</div>" for line in profile.get("lines", []))
+    th = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
     trs = ""
     for i, row in enumerate(rows):
         cls = "alt" if i % 2 else ""
-        trs += f"<tr class='{cls}'>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+        trs += f"<tr class='{cls}'>" + "".join(f"<td>{html.escape(str(c))}</td>" for c in row) + "</tr>"
     tot = ""
     if totals_row:
-        tot = "<tr class='total'>" + "".join(f"<td><b>{c}</b></td>" for c in totals_row) + "</tr>"
+        tot = "<tr class='total'>" + "".join(f"<td><b>{html.escape(str(c))}</b></td>" for c in totals_row) + "</tr>"
     return f"""<html><head><style>
     body{{font-family:Arial,sans-serif;font-size:11px;margin:20px}}
-    h2{{color:#003366;margin:0 0 4px 0}} p.co{{color:#555;font-size:10px;margin:0 0 12px 0}}
+    h2{{color:#003366;margin:0 0 4px 0}} .co{{color:#555;font-size:10px;margin:0 0 12px 0;line-height:1.45}}
     table{{border-collapse:collapse;width:100%}}
     th{{background:#003366;color:#fff;padding:5px 8px;text-align:left;font-size:11px}}
     td{{padding:4px 8px;border-bottom:1px solid #ddd;font-size:11px}}
     tr.alt td{{background:#f5f8ff}} tr.total td{{background:#e0f0e0;border-top:2px solid #006060}}
     </style></head><body>
-    <h2>{title}</h2><p class='co'>{company} &nbsp;|&nbsp; Printed: {datetime.date.today().strftime('%d/%m/%Y')}</p>
+    <h2>{html.escape(str(title))}</h2><div class='co'><div><b>{company_name}</b></div>{company_lines}<div>Printed: {datetime.date.today().strftime('%d/%m/%Y')}</div></div>
     <table><thead><tr>{th}</tr></thead><tbody>{trs}{tot}</tbody></table>
     </body></html>"""
 
@@ -779,15 +1026,20 @@ def do_print(parent, html):
         return
     doc = QTextDocument()
     doc.setHtml(html)
-    doc.print_(printer)
+    doc.print(printer)
 
 def do_pdf(parent, hint, html):
     fn, _ = QFileDialog.getSaveFileName(parent, "Save as PDF", f"{hint}.pdf", "PDF (*.pdf)")
     if not fn: return
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName(fn)
-    doc = QTextDocument(); doc.setHtml(html); doc.print_(printer)
+    if not fn.lower().endswith(".pdf"):
+        fn += ".pdf"
+    writer = QPdfWriter(fn)
+    writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    writer.setResolution(300)
+    writer.setPageMargins(QMarginsF(12, 12, 12, 12))
+    doc = QTextDocument()
+    doc.setHtml(html)
+    doc.print(writer)
     QMessageBox.information(parent, "Saved", f"PDF saved:\n{fn}")
 
 def do_csv(parent, hint, headers, rows):
@@ -804,19 +1056,27 @@ class AccountLookupDialog(QDialog):
     def __init__(self, year, parent=None):
         super().__init__(parent)
         self.year = year; self.chosen = None
-        self.setWindowTitle("Account Search"); self.setMinimumSize(700, 480)
+        self.setWindowTitle("Account Search"); self.resize(1100, 680); self.setMinimumSize(980, 620)
         self.setStyleSheet(APP_STYLE)
         layout = QVBoxLayout(self)
         self.search = QLineEdit(placeholderText="Type account code or name to search…")
+        self.search.setMinimumHeight(34)
         self.search.textChanged.connect(self._filter)
         layout.addWidget(self.search)
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Code","Account Name","City","Balance"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setColumnWidth(1, 420)
+        self.table.setColumnWidth(2, 220)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.doubleClicked.connect(self._select)
         self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
         layout.addWidget(self.table)
         btns = QHBoxLayout()
         b_sel = QPushButton("Select"); b_sel.setProperty("class","primary"); b_sel.clicked.connect(self._select)
@@ -841,6 +1101,8 @@ class AccountLookupDialog(QDialog):
                 item = QTableWidgetItem(val)
                 if col in (2,3): item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(row, col, item)
+        if self.table.rowCount():
+            self.table.selectRow(0)
 
     def _filter(self, text):
         q = text.upper()
@@ -1744,7 +2006,10 @@ class ModuleBase(QWidget):
     def __init__(self, year, company, parent=None):
         super().__init__(parent)
         self.year = year; self.company = company
+        self.print_company = get_company_profile(year, company)
         self._records = []   # list of dicts (include _recno)
+        self._shortcuts = []
+        self._dynamic_return_filters = []
         self.setStyleSheet(APP_STYLE)
 
     def _make_table(self, headers):
@@ -1771,6 +2036,32 @@ class ModuleBase(QWidget):
         if shortcut: btn.setShortcut(shortcut)
         btn.setFixedHeight(30)
         return btn
+
+    def _bind_shortcut(self, sequence, callback, context=Qt.ShortcutContext.WidgetWithChildrenShortcut):
+        shortcut = QShortcut(QKeySequence(sequence), self)
+        shortcut.setContext(context)
+        shortcut.activated.connect(_safe_ui_slot(self, callback, str(sequence)))
+        self._shortcuts.append(shortcut)
+        return shortcut
+
+    def _install_dynamic_return_filter(self, widget, callback):
+        filt = _ReturnFilter(callback, self)
+        widget.installEventFilter(filt)
+        self._dynamic_return_filters.append((widget, filt))
+        return filt
+
+    def _clear_dynamic_return_filters(self):
+        for widget, filt in self._dynamic_return_filters:
+            widget_deleted = widget is None or sip.isdeleted(widget)
+            filt_deleted = filt is None or sip.isdeleted(filt)
+            if not widget_deleted and not filt_deleted:
+                try:
+                    widget.removeEventFilter(filt)
+                except RuntimeError:
+                    pass
+            if not filt_deleted:
+                filt.deleteLater()
+        self._dynamic_return_filters.clear()
 
     def _title_bar(self, title):
         wrapper = QWidget()
@@ -1846,9 +2137,38 @@ class CashBankBookModule(ModuleBase):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.docd = docd; self.book_name = book_name; self.main_accd = main_accd
         self.tbl_name = get_cbk_file(docd)
-        self._accounts = get_accounts_dict(year)
+        account_rows = read_table("ACMST", year)
+        self._accounts = {str(r.get("AC_CODE","")).strip().upper(): str(r.get("AC_HEAD","")).strip() for r in account_rows}
         self._account_entries = _make_lookup_entries(
-            {"code": code, "name": name} for code, name in self._accounts.items()
+            {
+                "code": str(r.get("AC_CODE", "")).strip(),
+                "name": str(r.get("AC_HEAD", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("CITY", "")).strip(),
+                        str(r.get("PHONE", "")).strip(),
+                        str(r.get("KGSTNO", "")).strip(),
+                    ] if part
+                ),
+                "headers": ["Code", "Account Name", "City", "Phone", "Balance", "GST"],
+                "columns": [
+                    str(r.get("AC_CODE", "")).strip(),
+                    str(r.get("AC_HEAD", "")).strip(),
+                    str(r.get("CITY", "")).strip(),
+                    str(r.get("PHONE", "")).strip(),
+                    fmt_amount(r.get("CURBAL", 0)),
+                    str(r.get("KGSTNO", "")).strip(),
+                ],
+                "display": (
+                    f"{str(r.get('AC_CODE', '')).strip():<10}  "
+                    f"{str(r.get('AC_HEAD', '')).strip():<36}  "
+                    f"{str(r.get('CITY', '')).strip():<14}  "
+                    f"{str(r.get('PHONE', '')).strip():<14}  "
+                    f"Bal {fmt_amount(r.get('CURBAL', 0)):<12}  "
+                    f"{str(r.get('KGSTNO', '')).strip():<16}"
+                ),
+            }
+            for r in account_rows
         )
         self._edit_recno = None
         self._nav_filters = []
@@ -1910,13 +2230,13 @@ class CashBankBookModule(ModuleBase):
         self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
         layout.addWidget(self.lbl_status)
 
-        self.btn_lookup.clicked.connect(self._lookup_account)
-        self.btn_save.clicked.connect(self._save_inline_entry)
-        self.btn_delete.clicked.connect(self._delete_entry)
-        self.btn_print.clicked.connect(self._print)
-        self.btn_pdf.clicked.connect(self._pdf)
-        self.btn_csv.clicked.connect(self._csv)
-        self.btn_clear.clicked.connect(self._reset_entry_form)
+        self.btn_lookup.clicked.connect(_safe_ui_slot(self, self._lookup_account, "Lookup"))
+        self.btn_save.clicked.connect(_safe_ui_slot(self, self._save_inline_entry, "Save"))
+        self.btn_delete.clicked.connect(_safe_ui_slot(self, self._delete_entry, "Delete"))
+        self.btn_print.clicked.connect(_safe_ui_slot(self, self._print, "Print"))
+        self.btn_pdf.clicked.connect(_safe_ui_slot(self, self._pdf, "PDF"))
+        self.btn_csv.clicked.connect(_safe_ui_slot(self, self._csv, "CSV"))
+        self.btn_clear.clicked.connect(_safe_ui_slot(self, self._reset_entry_form, "New"))
         self._attach_account_completer(self.f_accd)
         self._setup_field_nav()
 
@@ -2042,7 +2362,7 @@ class CashBankBookModule(ModuleBase):
               if self._edit_recno is None
               else update_record(self.tbl_name, self.year, recno=self._edit_recno, updates=record))
         if not ok:
-            self.lbl_status.setText("  !! Save failed !!")
+            self.lbl_status.setText(f"  !! Save failed: {get_last_error() or (self.tbl_name + ' write error')} !!")
             return
         self._reset_entry_form()
         self.load_data()
@@ -2099,12 +2419,12 @@ class CashBankBookModule(ModuleBase):
 
     def _print(self):
         h, rows = self._get_export_data()
-        html = _make_html(self.book_name, self.company, h, rows)
+        html = _make_html(self.book_name, self.print_company, h, rows)
         do_print(self, html)
 
     def _pdf(self):
         h, rows = self._get_export_data()
-        html = _make_html(self.book_name, self.company, h, rows)
+        html = _make_html(self.book_name, self.print_company, h, rows)
         do_pdf(self, self.book_name, html)
 
     def _csv(self):
@@ -2142,9 +2462,38 @@ class JournalModule(ModuleBase):
     def __init__(self, year, company, parent=None):
         super().__init__(year, company, parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._accounts = get_accounts_dict(year)
+        account_rows = read_table("ACMST", year)
+        self._accounts = {str(r.get("AC_CODE","")).strip().upper(): str(r.get("AC_HEAD","")).strip() for r in account_rows}
         self._account_entries = _make_lookup_entries(
-            {"code": code, "name": name} for code, name in self._accounts.items()
+            {
+                "code": str(r.get("AC_CODE", "")).strip(),
+                "name": str(r.get("AC_HEAD", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("CITY", "")).strip(),
+                        str(r.get("PHONE", "")).strip(),
+                        str(r.get("KGSTNO", "")).strip(),
+                    ] if part
+                ),
+                "headers": ["Code", "Account Name", "City", "Phone", "Balance", "GST"],
+                "columns": [
+                    str(r.get("AC_CODE", "")).strip(),
+                    str(r.get("AC_HEAD", "")).strip(),
+                    str(r.get("CITY", "")).strip(),
+                    str(r.get("PHONE", "")).strip(),
+                    fmt_amount(r.get("CURBAL", 0)),
+                    str(r.get("KGSTNO", "")).strip(),
+                ],
+                "display": (
+                    f"{str(r.get('AC_CODE', '')).strip():<10}  "
+                    f"{str(r.get('AC_HEAD', '')).strip():<36}  "
+                    f"{str(r.get('CITY', '')).strip():<14}  "
+                    f"{str(r.get('PHONE', '')).strip():<14}  "
+                    f"Bal {fmt_amount(r.get('CURBAL', 0)):<12}  "
+                    f"{str(r.get('KGSTNO', '')).strip():<16}"
+                ),
+            }
+            for r in account_rows
         )
         self._edit_pair = None
         self._nav_filters = []
@@ -2209,14 +2558,14 @@ class JournalModule(ModuleBase):
         self.lbl_status = QLabel(""); self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
         layout.addWidget(self.lbl_status)
 
-        self.btn_lookup_dr.clicked.connect(lambda: self._lookup(self.f_dr))
-        self.btn_lookup_cr.clicked.connect(lambda: self._lookup(self.f_cr))
-        self.btn_save.clicked.connect(self._save_inline_entry)
-        self.btn_del.clicked.connect(self._delete_entry)
-        self.btn_print.clicked.connect(self._print)
-        self.btn_pdf.clicked.connect(self._pdf)
-        self.btn_csv.clicked.connect(self._csv)
-        self.btn_clear.clicked.connect(self._reset_entry_form)
+        self.btn_lookup_dr.clicked.connect(_safe_ui_slot(self, lambda: self._lookup(self.f_dr), "Lookup Dr"))
+        self.btn_lookup_cr.clicked.connect(_safe_ui_slot(self, lambda: self._lookup(self.f_cr), "Lookup Cr"))
+        self.btn_save.clicked.connect(_safe_ui_slot(self, self._save_inline_entry, "Save"))
+        self.btn_del.clicked.connect(_safe_ui_slot(self, self._delete_entry, "Delete"))
+        self.btn_print.clicked.connect(_safe_ui_slot(self, self._print, "Print"))
+        self.btn_pdf.clicked.connect(_safe_ui_slot(self, self._pdf, "PDF"))
+        self.btn_csv.clicked.connect(_safe_ui_slot(self, self._csv, "CSV"))
+        self.btn_clear.clicked.connect(_safe_ui_slot(self, self._reset_entry_form, "New"))
         self._attach_account_completer(self.f_dr)
         self._attach_account_completer(self.f_cr)
         self._setup_field_nav()
@@ -2369,7 +2718,7 @@ class JournalModule(ModuleBase):
             else:
                 ok = ok and write_record("JBK81", self.year, cr_record)
         if not ok:
-            self.lbl_status.setText("  !! Save failed !!")
+            self.lbl_status.setText(f"  !! Save failed: {get_last_error() or 'JBK81 write error'} !!")
             return
         self._reset_entry_form()
         self.load_data()
@@ -2413,11 +2762,11 @@ class JournalModule(ModuleBase):
                 QMessageBox.critical(self,"Error","Delete failed.")
 
     def _print(self):
-        html = _make_html("JOURNAL", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("JOURNAL", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
 
     def _pdf(self):
-        html = _make_html("JOURNAL", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("JOURNAL", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Journal", html)
 
     def _csv(self):
@@ -2463,24 +2812,84 @@ class SalesModule(ModuleBase):
     def __init__(self, year, company, parent=None):
         super().__init__(year, company, parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._accounts = get_accounts_dict(year)
+        account_rows = read_table("ACMST", year)
+        self._accounts = {str(r.get("AC_CODE","")).strip().upper(): str(r.get("AC_HEAD","")).strip() for r in account_rows}
         self._account_entries = _make_lookup_entries(
-            {"code": code, "name": name} for code, name in self._accounts.items()
+            {
+                "code": str(r.get("AC_CODE", "")).strip(),
+                "name": str(r.get("AC_HEAD", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("CITY", "")).strip(),
+                        str(r.get("PHONE", "")).strip(),
+                        str(r.get("KGSTNO", "")).strip(),
+                    ] if part
+                ),
+                "headers": ["Code", "Account Name", "City", "Phone", "Balance", "GST"],
+                "columns": [
+                    str(r.get("AC_CODE", "")).strip(),
+                    str(r.get("AC_HEAD", "")).strip(),
+                    str(r.get("CITY", "")).strip(),
+                    str(r.get("PHONE", "")).strip(),
+                    fmt_amount(r.get("CURBAL", 0)),
+                    str(r.get("KGSTNO", "")).strip(),
+                ],
+                "display": (
+                    f"{str(r.get('AC_CODE', '')).strip():<10}  "
+                    f"{str(r.get('AC_HEAD', '')).strip():<36}  "
+                    f"{str(r.get('CITY', '')).strip():<14}  "
+                    f"{str(r.get('PHONE', '')).strip():<14}  "
+                    f"Bal {fmt_amount(r.get('CURBAL', 0)):<12}  "
+                    f"{str(r.get('KGSTNO', '')).strip():<16}"
+                ),
+            }
+            for r in account_rows
         )
         # Full item data: code -> {desc, tax, rate}
         self._item_data = {}
-        for r in read_table("ITMST", year):
-            code = str(r.get("ITCD", "")).strip()
+        item_rows = read_table("ITMST", year)
+        for r in item_rows:
+            code = str(r.get("ITCD", "")).strip().upper()
             if code:
                 self._item_data[code] = {
                     "desc": str(r.get("ITDESC", "")).strip(),
                     "tax":  f"{_safe_float(r.get('ITAXP', 0)):.2f}",
                     "rate": f"{_safe_float(r.get('SALRATE'), _safe_float(r.get('UNIT_PRICE', 0))):.2f}",
                     "unit": str(r.get("UNIT", "")).strip(),
+                    "stock": f"{float(r.get('CURQTY', 0) or 0):.3f}",
                 }
         self._item_names = {k: v["desc"] for k, v in self._item_data.items()}
         self._item_entries = _make_lookup_entries(
-            {"code": code, "name": info["desc"]} for code, info in self._item_data.items()
+            {
+                "code": str(r.get("ITCD", "")).strip(),
+                "name": str(r.get("ITDESC", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("UNIT", "")).strip(),
+                        f"Tax {_safe_float(r.get('ITAXP', 0)):.2f}",
+                        f"Rate {fmt_amount(_safe_float(r.get('SALRATE'), _safe_float(r.get('UNIT_PRICE', 0))))}",
+                        f"Stock {float(r.get('CURQTY', 0) or 0):,.3f}",
+                    ] if part
+                ),
+                "headers": ["Item Code", "Description", "Unit", "Tax %", "Rate", "Stock"],
+                "columns": [
+                    str(r.get("ITCD", "")).strip(),
+                    str(r.get("ITDESC", "")).strip(),
+                    str(r.get("UNIT", "")).strip(),
+                    f"{_safe_float(r.get('ITAXP', 0)):.2f}",
+                    fmt_amount(_safe_float(r.get('SALRATE'), _safe_float(r.get('UNIT_PRICE', 0)))),
+                    f"{float(r.get('CURQTY', 0) or 0):,.3f}",
+                ],
+                "display": (
+                    f"{str(r.get('ITCD', '')).strip():<12}  "
+                    f"{str(r.get('ITDESC', '')).strip():<38}  "
+                    f"{str(r.get('UNIT', '')).strip():<8}  "
+                    f"Tax {_safe_float(r.get('ITAXP', 0)):>6.2f}  "
+                    f"Rate {fmt_amount(_safe_float(r.get('SALRATE'), _safe_float(r.get('UNIT_PRICE', 0)))):<10}  "
+                    f"Stock {float(r.get('CURQTY', 0) or 0):>10,.3f}"
+                ),
+            }
+            for r in item_rows
         )
         self._edit_recno = None
         self._loading_detail = False
@@ -2499,8 +2908,12 @@ class SalesModule(ModuleBase):
         self.table.setColumnWidth(6,130); self.table.setColumnWidth(7,90)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.itemSelectionChanged.connect(self._load_selected_entry)
-        self.table.doubleClicked.connect(self._load_selected_entry)
+        self.table.itemSelectionChanged.connect(
+            _safe_ui_slot(self, lambda: QTimer.singleShot(0, self._load_selected_entry), "Load entry")
+        )
+        self.table.doubleClicked.connect(
+            _safe_ui_slot(self, lambda *_: QTimer.singleShot(0, self._open_selected_entry_details), "Open entry")
+        )
         browse_layout.addWidget(self.table)
         layout.addWidget(browse_group, 2)
 
@@ -2529,7 +2942,7 @@ class SalesModule(ModuleBase):
         p_row = QHBoxLayout(); p_row.setSpacing(8)
         p_row.addWidget(QLabel("Party A/c:"))
         self.f_party = QLineEdit(); self.f_party.setMaximumWidth(100); p_row.addWidget(self.f_party)
-        btn_lookup = self._toolbar_btn("Lookup"); btn_lookup.clicked.connect(self._lookup_party)
+        btn_lookup = self._toolbar_btn("Lookup"); btn_lookup.clicked.connect(_safe_ui_slot(self, self._lookup_party, "Lookup"))
         p_row.addWidget(btn_lookup)
         p_row.addWidget(QLabel("Party Name:"))
         self.f_pname = QLineEdit(); self.f_pname.setReadOnly(True); self.f_pname.setMinimumWidth(260)
@@ -2577,14 +2990,21 @@ class SalesModule(ModuleBase):
         layout.addWidget(self.lbl_status)
 
         self.f_party.textChanged.connect(self._update_party_name)
-        self.btn_new.clicked.connect(self._reset_entry_form)
-        self.btn_save.clicked.connect(self._save_entry)
-        self.btn_delete.clicked.connect(self._delete_entry)
-        self.btn_print.clicked.connect(self._print)
-        self.btn_pdf.clicked.connect(self._pdf)
-        self.btn_csv.clicked.connect(self._csv)
+        self.btn_new.clicked.connect(_safe_ui_slot(self, self._reset_entry_form, "New"))
+        self.btn_save.clicked.connect(_safe_ui_slot(self, self._save_entry, "Save"))
+        self.btn_delete.clicked.connect(_safe_ui_slot(self, self._delete_entry, "Delete"))
+        self.btn_print.clicked.connect(_safe_ui_slot(self, self._print, "Print"))
+        self.btn_pdf.clicked.connect(_safe_ui_slot(self, self._pdf, "PDF"))
+        self.btn_csv.clicked.connect(_safe_ui_slot(self, self._csv, "CSV"))
         self._attach_account_completer(self.f_party)
         self._setup_field_nav()
+        self._bind_shortcut("F10", self._reset_entry_form)
+        self._bind_shortcut("F9", self._save_entry)
+        self._bind_shortcut("F8", self._save_entry)
+        self._bind_shortcut("F5", self._print)
+        self._bind_shortcut("F4", self._delete_entry)
+        self._bind_shortcut("F2", self._open_selected_entry_details)
+        self._bind_shortcut("Escape", lambda: self.window()._go_back() if hasattr(self.window(), "_go_back") else None)
 
     # ── Enter-key navigation wiring ──────────────────────────────────────────
     def _setup_field_nav(self):
@@ -2678,6 +3098,7 @@ class SalesModule(ModuleBase):
             resolved = _resolve_lookup_value(display, self._account_entries)
             if resolved:
                 widget.setText(resolved["code"])
+                self._update_party_name(resolved["code"])
 
         _attach_lookup_completer(widget, self._account_entries, _pick)
 
@@ -2711,13 +3132,11 @@ class SalesModule(ModuleBase):
         self.f_party.setFocus()
 
     def _update_party_name(self, text):
-        query = text.strip().upper()
-        resolved = next(
-            (entry for entry in self._account_entries
-             if query and query in (entry["code"].upper(), entry["name"].upper())),
-            None,
-        )
+        matches = _lookup_matches(text, self._account_entries)
+        resolved = matches[0] if len(matches) == 1 else None
         if resolved:
+            if self.f_party.text().strip() != resolved["code"]:
+                self.f_party.setText(resolved["code"])
             self.f_pname.setText(resolved["name"])
         else:
             self.f_pname.setText(self._accounts.get(text.strip().upper(), ""))
@@ -2777,8 +3196,10 @@ class SalesModule(ModuleBase):
             if resolved:
                 le_code.setText(resolved["code"])
                 self._fill_item_row_from_code(r, resolved["code"])
+                self._focus_item_cell(r, self._IC_DESC)
 
         _attach_lookup_completer(le_code, self._item_entries, _pick_item)
+        le_code.textChanged.connect(lambda text, r=row: self._item_code_changed(r, text))
         le_rate.textChanged.connect(self._update_items_total)
         le_qty.textChanged.connect(self._update_items_total)
         le_amt.textChanged.connect(self._update_items_total)
@@ -2791,16 +3212,15 @@ class SalesModule(ModuleBase):
         def _qty_enter(r=row):    self._qty_entered(r)
         def _amt_enter(r=row):    self._item_amount_entered(r)
 
-        f_code = _ReturnFilter(_code_enter, le_code)
-        f_desc = _ReturnFilter(_desc_enter, le_desc)
-        f_tax  = _ReturnFilter(_tax_enter,  le_tax)
-        f_rate = _ReturnFilter(_rate_enter, le_rate)
-        f_qty  = _ReturnFilter(_qty_enter,  le_qty)
-        f_amt  = _ReturnFilter(_amt_enter,  le_amt)
-        for w, f in [(le_code, f_code),(le_desc, f_desc),(le_tax, f_tax),
-                     (le_rate, f_rate),(le_qty,  f_qty), (le_amt,  f_amt)]:
-            w.installEventFilter(f)
-            self._nav_filters.append(f)
+        for widget, callback in [
+            (le_code, _code_enter),
+            (le_desc, _desc_enter),
+            (le_tax, _tax_enter),
+            (le_rate, _rate_enter),
+            (le_qty, _qty_enter),
+            (le_amt, _amt_enter),
+        ]:
+            self._install_dynamic_return_filter(widget, callback)
 
         return row
 
@@ -2808,15 +3228,23 @@ class SalesModule(ModuleBase):
         info = self._item_data.get(str(code or "").strip().upper())
         if not info:
             return False
+        le_code = self.items_table.cellWidget(row, self._IC_CODE)
         le_desc = self.items_table.cellWidget(row, self._IC_DESC)
         le_tax  = self.items_table.cellWidget(row, self._IC_TAX)
         le_rate = self.items_table.cellWidget(row, self._IC_RATE)
+        le_qty = self.items_table.cellWidget(row, self._IC_QTY)
+        le_amt = self.items_table.cellWidget(row, self._IC_AMT)
+        if le_code:
+            le_code.setText(str(code or "").strip().upper())
         if le_desc:
             le_desc.setText(info["desc"])
         if le_tax:
             le_tax.setText(info["tax"])
         if le_rate:
             le_rate.setText(info["rate"])
+        qty = _safe_float(le_qty.text() if le_qty else 0)
+        if le_amt:
+            le_amt.setText(f"{_safe_float(info['rate']) * qty:.2f}")
         return True
 
     def _item_code_entered(self, row):
@@ -2830,6 +3258,12 @@ class SalesModule(ModuleBase):
             le_code.setText(code)
         self._fill_item_row_from_code(row, code)
         self._focus_item_cell(row, self._IC_DESC)
+
+    def _item_code_changed(self, row, text):
+        matches = _lookup_matches(text, self._item_entries)
+        if len(matches) != 1:
+            return
+        self._fill_item_row_from_code(row, matches[0]["code"])
 
     def _qty_entered(self, row):
         """After Qty: compute Amount = Rate * Qty, move to Amount."""
@@ -2899,11 +3333,8 @@ class SalesModule(ModuleBase):
         return items
 
     def _load_bill_items(self, bill_no):
+        self._clear_dynamic_return_filters()
         self.items_table.setRowCount(0)
-        # Keep only filters whose parent widgets are still alive
-        self._nav_filters = [f for f in self._nav_filters
-                             if not isinstance(f, _ReturnFilter)
-                             or f.parent() not in self._item_cell_widgets()]
         if not bill_no:
             self.lbl_items_total.setText("Total: 0.00")
             self._add_item_row()
@@ -2929,8 +3360,8 @@ class SalesModule(ModuleBase):
                 "qty":  f"{qty:.3f}",
                 "amt":  f"{value:.2f}",
             })
-        # Always leave a blank row at bottom for new entry
-        self._add_item_row()
+        if not items:
+            self._add_item_row()
         self.lbl_items_total.setText(f"Total: {fmt_amount(total)}")
 
     def _item_cell_widgets(self):
@@ -2944,6 +3375,7 @@ class SalesModule(ModuleBase):
         return widgets
 
     def _clear_bill_items(self):
+        self._clear_dynamic_return_filters()
         self.items_table.setRowCount(0)
         self.lbl_items_total.setText("Total: 0.00")
         self._add_item_row()
@@ -2998,6 +3430,19 @@ class SalesModule(ModuleBase):
         self._load_bill_items(self.f_billno.text().strip())
         self._loading_detail = False
 
+    def _open_selected_entry_details(self):
+        if self.table.rowCount() <= 0:
+            return
+        if self.table.currentRow() < 0:
+            self.table.selectRow(0)
+        self._load_selected_entry()
+        if self._edit_recno is not None:
+            self.f_billno.setFocus()
+            self.f_billno.selectAll()
+            self.lbl_status.setText(
+                f"  Editing Bill {self.f_billno.text().strip()}   Party: {self.f_pname.text().strip() or self.f_party.text().strip()}"
+            )
+
     def _save_entry(self):
         accd = self._resolve_account_code(self.f_party)
         if not accd:
@@ -3034,7 +3479,7 @@ class SalesModule(ModuleBase):
         ok = (update_record("SREG41", self.year, recno=self._edit_recno, updates=rec)
               if self._edit_recno else write_record("SREG41", self.year, rec))
         if not ok:
-            self.lbl_status.setText("  !! Save failed !!")
+            self.lbl_status.setText(f"  !! Save failed: {get_last_error() or 'SREG41 write error'} !!")
             return
         if old_bill_no:
             delete_records("SRPRFL", self.year, {"DOCD": "41", "SBILLNO": old_bill_no})
@@ -3053,7 +3498,9 @@ class SalesModule(ModuleBase):
                 "VALUE":   itm["value"],
                 "ITAXP":   itm["tax"],
             }
-            write_record("SRPRFL", self.year, line)
+            if not write_record("SRPRFL", self.year, line):
+                self.lbl_status.setText(f"  !! Save failed: {get_last_error() or 'SRPRFL write error'} !!")
+                return
         saved_recno = self._edit_recno
         self.load_data()
         if saved_recno is not None:
@@ -3076,26 +3523,29 @@ class SalesModule(ModuleBase):
             else: QMessageBox.critical(self,"Error","Delete failed.")
 
     def _print(self):
-        html = _make_html("SALES REGISTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("SALES REGISTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("SALES REGISTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("SALES REGISTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Sales_Register", html)
     def _csv(self):
         do_csv(self, "Sales_Register", self._get_headers(self.table), self._get_rows_for_export(self.table))
 
     def keyPressEvent(self, event):
         key = event.key()
-        if key == Qt.Key.Key_F10:
-            self._reset_entry_form()
-        elif key == Qt.Key.Key_F2:
-            self._load_selected_entry()
-        elif key == Qt.Key.Key_F4:
-            self._delete_entry()
-        elif key == Qt.Key.Key_F5:
-            self._print()
-        elif key in (Qt.Key.Key_F9, Qt.Key.Key_F8):
-            self._save_entry()
+        actions = {
+            Qt.Key.Key_F10: ("New", self._reset_entry_form),
+            Qt.Key.Key_F2: ("Edit", self._open_selected_entry_details),
+            Qt.Key.Key_F4: ("Delete", self._delete_entry),
+            Qt.Key.Key_F5: ("Print", self._print),
+            Qt.Key.Key_F9: ("Save", self._save_entry),
+            Qt.Key.Key_F8: ("Update", self._save_entry),
+        }
+        if key in actions:
+            label, callback = actions[key]
+            _safe_ui_slot(self, callback, label)()
+            event.accept()
+            return
         elif key == Qt.Key.Key_Escape:
             win = self.window()
             if hasattr(win, '_go_back'):
@@ -3119,21 +3569,79 @@ class PurchaseModule(ModuleBase):
     def __init__(self, year, company, parent=None):
         super().__init__(year, company, parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._accounts = get_accounts_dict(year)
+        account_rows = read_table("ACMST", year)
+        self._accounts = {str(r.get("AC_CODE","")).strip().upper(): str(r.get("AC_HEAD","")).strip() for r in account_rows}
         self._account_entries = _make_lookup_entries(
-            {"code": code, "name": name} for code, name in self._accounts.items()
+            {
+                "code": str(r.get("AC_CODE", "")).strip(),
+                "name": str(r.get("AC_HEAD", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("CITY", "")).strip(),
+                        str(r.get("PHONE", "")).strip(),
+                        str(r.get("KGSTNO", "")).strip(),
+                    ] if part
+                ),
+                "headers": ["Code", "Account Name", "City", "Phone", "Balance", "GST"],
+                "columns": [
+                    str(r.get("AC_CODE", "")).strip(),
+                    str(r.get("AC_HEAD", "")).strip(),
+                    str(r.get("CITY", "")).strip(),
+                    str(r.get("PHONE", "")).strip(),
+                    fmt_amount(r.get("CURBAL", 0)),
+                    str(r.get("KGSTNO", "")).strip(),
+                ],
+                "display": (
+                    f"{str(r.get('AC_CODE', '')).strip():<10}  "
+                    f"{str(r.get('AC_HEAD', '')).strip():<36}  "
+                    f"{str(r.get('CITY', '')).strip():<14}  "
+                    f"{str(r.get('PHONE', '')).strip():<14}  "
+                    f"Bal {fmt_amount(r.get('CURBAL', 0)):<12}  "
+                    f"{str(r.get('KGSTNO', '')).strip():<16}"
+                ),
+            }
+            for r in account_rows
         )
         self._item_data = {}
-        for r in read_table("ITMST", year):
-            code = str(r.get("ITCD", "")).strip()
+        item_rows = read_table("ITMST", year)
+        for r in item_rows:
+            code = str(r.get("ITCD", "")).strip().upper()
             if code:
                 self._item_data[code] = {
                     "desc": str(r.get("ITDESC", "")).strip(),
                     "rate": f"{_safe_float(r.get('PURRATE'), _safe_float(r.get('UNIT_PRICE', 0))):.2f}",
+                    "unit": str(r.get("UNIT", "")).strip(),
+                    "stock": f"{float(r.get('CURQTY', 0) or 0):.3f}",
                 }
         self._item_names = {k: v["desc"] for k, v in self._item_data.items()}
         self._item_entries = _make_lookup_entries(
-            {"code": code, "name": info["desc"]} for code, info in self._item_data.items()
+            {
+                "code": str(r.get("ITCD", "")).strip(),
+                "name": str(r.get("ITDESC", "")).strip(),
+                "details": "  ".join(
+                    part for part in [
+                        str(r.get("UNIT", "")).strip(),
+                        f"Rate {fmt_amount(_safe_float(r.get('PURRATE'), _safe_float(r.get('UNIT_PRICE', 0))))}",
+                        f"Stock {float(r.get('CURQTY', 0) or 0):,.3f}",
+                    ] if part
+                ),
+                "headers": ["Item Code", "Description", "Unit", "Rate", "Stock"],
+                "columns": [
+                    str(r.get("ITCD", "")).strip(),
+                    str(r.get("ITDESC", "")).strip(),
+                    str(r.get("UNIT", "")).strip(),
+                    fmt_amount(_safe_float(r.get('PURRATE'), _safe_float(r.get('UNIT_PRICE', 0)))),
+                    f"{float(r.get('CURQTY', 0) or 0):,.3f}",
+                ],
+                "display": (
+                    f"{str(r.get('ITCD', '')).strip():<12}  "
+                    f"{str(r.get('ITDESC', '')).strip():<42}  "
+                    f"{str(r.get('UNIT', '')).strip():<8}  "
+                    f"Rate {fmt_amount(_safe_float(r.get('PURRATE'), _safe_float(r.get('UNIT_PRICE', 0)))):<10}  "
+                    f"Stock {float(r.get('CURQTY', 0) or 0):>10,.3f}"
+                ),
+            }
+            for r in item_rows
         )
         self._edit_recno = None
         self._nav_filters = []
@@ -3222,13 +3730,13 @@ class PurchaseModule(ModuleBase):
         layout.addWidget(self.lbl_status)
 
         self.f_accd.textChanged.connect(self._update_supplier_name)
-        self.btn_lookup.clicked.connect(self._lookup_account)
-        self.btn_save.clicked.connect(self._save_inline_entry)
-        self.btn_del.clicked.connect(self._delete_entry)
-        self.btn_print.clicked.connect(self._print)
-        self.btn_pdf.clicked.connect(self._pdf)
-        self.btn_csv.clicked.connect(self._csv)
-        self.btn_clear.clicked.connect(self._reset_entry_form)
+        self.btn_lookup.clicked.connect(_safe_ui_slot(self, self._lookup_account, "Lookup"))
+        self.btn_save.clicked.connect(_safe_ui_slot(self, self._save_inline_entry, "Save"))
+        self.btn_del.clicked.connect(_safe_ui_slot(self, self._delete_entry, "Delete"))
+        self.btn_print.clicked.connect(_safe_ui_slot(self, self._print, "Print"))
+        self.btn_pdf.clicked.connect(_safe_ui_slot(self, self._pdf, "PDF"))
+        self.btn_csv.clicked.connect(_safe_ui_slot(self, self._csv, "CSV"))
+        self.btn_clear.clicked.connect(_safe_ui_slot(self, self._reset_entry_form, "New"))
         self._attach_account_completer(self.f_accd)
         self._setup_field_nav()
 
@@ -3249,6 +3757,7 @@ class PurchaseModule(ModuleBase):
             resolved = _resolve_lookup_value(display, self._account_entries)
             if resolved:
                 widget.setText(resolved["code"])
+                self._update_supplier_name(resolved["code"])
 
         _attach_lookup_completer(widget, self._account_entries, _pick)
 
@@ -3309,8 +3818,10 @@ class PurchaseModule(ModuleBase):
             if resolved:
                 le_code.setText(resolved["code"])
                 self._fill_pur_item_row_from_code(r, resolved["code"])
+                self._focus_pur_cell(r, self._PC_DESC)
 
         _attach_lookup_completer(le_code, self._item_entries, _pick_item)
+        le_code.textChanged.connect(lambda text, r=row: self._pur_item_code_changed(r, text))
         le_rate.textChanged.connect(self._update_pur_total)
         le_qty.textChanged.connect(self._update_pur_total)
         le_amt.textChanged.connect(self._update_pur_total)
@@ -3363,13 +3874,27 @@ class PurchaseModule(ModuleBase):
         info = self._item_data.get(str(code or "").strip().upper())
         if not info:
             return False
+        code_widget = self.items_table.cellWidget(row, self._PC_CODE)
         desc = self.items_table.cellWidget(row, self._PC_DESC)
         rate = self.items_table.cellWidget(row, self._PC_RATE)
+        qty = self.items_table.cellWidget(row, self._PC_QTY)
+        amt = self.items_table.cellWidget(row, self._PC_AMT)
+        if code_widget:
+            code_widget.setText(str(code or "").strip().upper())
         if desc:
             desc.setText(info["desc"])
         if rate:
             rate.setText(info["rate"])
+        quantity = _safe_float(qty.text() if qty else 0)
+        if amt:
+            amt.setText(f"{_safe_float(info['rate']) * quantity:.2f}")
         return True
+
+    def _pur_item_code_changed(self, row, text):
+        matches = _lookup_matches(text, self._item_entries)
+        if len(matches) != 1:
+            return
+        self._fill_pur_item_row_from_code(row, matches[0]["code"])
 
     def _update_pur_total(self):
         total = 0.0
@@ -3437,13 +3962,11 @@ class PurchaseModule(ModuleBase):
             self.f_accd.setText(dlg.chosen)
 
     def _update_supplier_name(self, text):
-        query = text.strip().upper()
-        resolved = next(
-            (entry for entry in self._account_entries
-             if query and query in (entry["code"].upper(), entry["name"].upper())),
-            None,
-        )
+        matches = _lookup_matches(text, self._account_entries)
+        resolved = matches[0] if len(matches) == 1 else None
         if resolved:
+            if self.f_accd.text().strip() != resolved["code"]:
+                self.f_accd.setText(resolved["code"])
             self.f_pname.setText(resolved["name"])
         else:
             self.f_pname.setText(self._accounts.get(text.strip().upper(), ""))
@@ -3468,7 +3991,8 @@ class PurchaseModule(ModuleBase):
             total += value
             self._add_pur_item_row({"code":prodcd,"desc":desc,
                                     "rate":f"{rate:.2f}","qty":f"{qty:.3f}","amt":f"{value:.2f}"})
-        self._add_pur_item_row()   # blank row for new entry
+        if not items:
+            self._add_pur_item_row()
         self.lbl_pur_total.setText(f"Total: {fmt_amount(total)}")
 
     def _reset_entry_form(self):
@@ -3523,7 +4047,7 @@ class PurchaseModule(ModuleBase):
         ok = (update_record("PREG61", self.year, recno=self._edit_recno, updates=record)
               if self._edit_recno else write_record("PREG61", self.year, record))
         if not ok:
-            self.lbl_status.setText("  !! Save failed !!")
+            self.lbl_status.setText(f"  !! Save failed: {get_last_error() or 'PREG61 write error'} !!")
             return
         if old_bill_no:
             delete_records("SRPRFL", self.year, {"DOCD": "61", "PBILLNO": old_bill_no})
@@ -3541,7 +4065,9 @@ class PurchaseModule(ModuleBase):
                 "RATE":    itm["rate"],
                 "VALUE":   itm["value"],
             }
-            write_record("SRPRFL", self.year, line)
+            if not write_record("SRPRFL", self.year, line):
+                self.lbl_status.setText(f"  !! Save failed: {get_last_error() or 'SRPRFL write error'} !!")
+                return
         self.lbl_status.setText(f"  Saved Purchase {bill_no}")
         self._reset_entry_form()
         self.load_data()
@@ -3579,10 +4105,10 @@ class PurchaseModule(ModuleBase):
             else: QMessageBox.critical(self,"Error","Delete failed.")
 
     def _print(self):
-        html = _make_html("PURCHASE REGISTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("PURCHASE REGISTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("PURCHASE REGISTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("PURCHASE REGISTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Purchase_Register", html)
     def _csv(self):
         do_csv(self, "Purchase_Register", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -3682,12 +4208,12 @@ class StockVoucherModule(ModuleBase):
         self.lbl_status.setStyleSheet("color:#ffffff;font-size:18px;padding:6px 0;")
         layout.addWidget(self.lbl_status)
 
-        self.btn_new.clicked.connect(self._reset_entry_form)
-        self.btn_save.clicked.connect(self._save_entry)
-        self.btn_del.clicked.connect(self._delete_entry)
-        self.btn_print.clicked.connect(self._print)
-        self.btn_pdf.clicked.connect(self._pdf)
-        self.btn_csv.clicked.connect(self._csv)
+        self.btn_new.clicked.connect(_safe_ui_slot(self, self._reset_entry_form, "New"))
+        self.btn_save.clicked.connect(_safe_ui_slot(self, self._save_entry, "Save"))
+        self.btn_del.clicked.connect(_safe_ui_slot(self, self._delete_entry, "Delete"))
+        self.btn_print.clicked.connect(_safe_ui_slot(self, self._print, "Print"))
+        self.btn_pdf.clicked.connect(_safe_ui_slot(self, self._pdf, "PDF"))
+        self.btn_csv.clicked.connect(_safe_ui_slot(self, self._csv, "CSV"))
         self._setup_field_nav()
 
     def _setup_field_nav(self):
@@ -3789,7 +4315,7 @@ class StockVoucherModule(ModuleBase):
         ok = (update_record(self.table_name, self.year, recno=self._edit_recno, updates=record)
               if self._edit_recno else write_record(self.table_name, self.year, record))
         if not ok:
-            self.lbl_status.setText("  !! Save failed !!")
+            self.lbl_status.setText(f"  !! Save failed: {get_last_error() or (self.table_name + ' write error')} !!")
             return
         saved_label = "Receipt" if self.mode == "receipt" else "Issue"
         self.lbl_status.setText(f"  Saved Stock {saved_label} {voucher}")
@@ -3829,11 +4355,11 @@ class StockVoucherModule(ModuleBase):
                 QMessageBox.critical(self, "Error", "Delete failed.")
 
     def _print(self):
-        html = _make_html(self.title, self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html(self.title, self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
 
     def _pdf(self):
-        html = _make_html(self.title, self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html(self.title, self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, self.title.replace(" ", "_"), html)
 
     def _csv(self):
@@ -3948,10 +4474,10 @@ class TrialBalanceModule(ModuleBase):
             self.table.setRowHidden(row, not match if q else False)
 
     def _print(self):
-        html = _make_html("TRIAL BALANCE", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("TRIAL BALANCE", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("TRIAL BALANCE", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("TRIAL BALANCE", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Trial_Balance", html)
     def _csv(self):
         do_csv(self, "Trial_Balance", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4056,10 +4582,10 @@ class LedgerModule(ModuleBase):
         self.lbl_status.setText(f"  A/c: {code}  |  Opening: ₹{fmt_amount(opening)}  |  Dr: ₹{fmt_amount(total_dr)}  |  Cr: ₹{fmt_amount(total_cr)}  |  Closing: ₹{fmt_amount(abs(balance))} {'Dr' if balance>=0 else 'Cr'}")
 
     def _print(self):
-        html = _make_html(f"LEDGER — {self.f_accd.text().upper()}  {self.lbl_acname.text()}", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html(f"LEDGER — {self.f_accd.text().upper()}  {self.lbl_acname.text()}", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html(f"LEDGER — {self.f_accd.text().upper()}", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html(f"LEDGER — {self.f_accd.text().upper()}", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, f"Ledger_{self.f_accd.text()}", html)
     def _csv(self):
         do_csv(self, f"Ledger_{self.f_accd.text()}", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4125,10 +4651,10 @@ class DayBookModule(ModuleBase):
         self.lbl_status.setText(f"  Transactions: {len(all_recs)}   |   Period: {from_dt.strftime('%d/%m/%Y')} to {to_dt.strftime('%d/%m/%Y')}   |   Total: ₹ {fmt_amount(total)}")
 
     def _print(self):
-        html = _make_html("DAY BOOK", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("DAY BOOK", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("DAY BOOK", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("DAY BOOK", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Day_Book", html)
     def _csv(self):
         do_csv(self, "Day_Book", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4198,10 +4724,10 @@ class OutstandingModule(ModuleBase):
             self.table.setRowHidden(row, not match if q else False)
 
     def _print(self):
-        html = _make_html("OUTSTANDING BILLS", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("OUTSTANDING BILLS", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("OUTSTANDING BILLS", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("OUTSTANDING BILLS", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Outstanding_Bills", html)
     def _csv(self):
         do_csv(self, "Outstanding_Bills", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4292,10 +4818,10 @@ class AccountMasterModule(ModuleBase):
             else: QMessageBox.critical(self,"Error","Update failed.")
 
     def _print(self):
-        html = _make_html("ACCOUNT MASTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("ACCOUNT MASTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("ACCOUNT MASTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("ACCOUNT MASTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Account_Master", html)
     def _csv(self):
         do_csv(self, "Account_Master", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4379,10 +4905,10 @@ class ItemMasterModule(ModuleBase):
             self.table.setRowHidden(row, not match if q else False)
 
     def _print(self):
-        html = _make_html("ITEM MASTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("ITEM MASTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_print(self, html)
     def _pdf(self):
-        html = _make_html("ITEM MASTER", self.company, self._get_headers(self.table), self._get_rows_for_export(self.table))
+        html = _make_html("ITEM MASTER", self.print_company, self._get_headers(self.table), self._get_rows_for_export(self.table))
         do_pdf(self, "Item_Master", html)
     def _csv(self):
         do_csv(self, "Item_Master", self._get_headers(self.table), self._get_rows_for_export(self.table))
@@ -4678,6 +5204,7 @@ class DosMenuPage(QWidget):
                 ("Tax   Master", handlers["tax_mst"]),
             ],
             "Help": [
+                ("Check for Updates", handlers["check_updates"]),
                 ("About", handlers["about"]),
             ],
             "Quit": [
@@ -4927,6 +5454,7 @@ class MainWindow(QMainWindow):
                 "workflow_pdf": self._export_workflow_pdf,
                 "backup": self._backup_data,
                 "restore": self._restore_data,
+                "check_updates": self._check_for_updates,
                 "about": self._about,
                 "quit": self.close,
             },
@@ -5164,6 +5692,85 @@ class MainWindow(QMainWindow):
             "Built with Python + PyQt6<br>"
             "Data: CA-Clipper DBF format<br><br>"
             f"Data directory:<br>{dbf_layer.DATA_DIR}")
+
+    def _check_for_updates(self):
+        try:
+            metadata = _fetch_update_metadata()
+        except urllib.error.URLError as exc:
+            QMessageBox.warning(
+                self,
+                "Update Check Failed",
+                f"Could not reach the update server.\n\n{exc}",
+            )
+            return
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Update Check Failed",
+                f"Update feed is not valid.\n\n{exc}",
+            )
+            return
+
+        latest_version = metadata["version"]
+        if _version_tuple(latest_version) <= _version_tuple(APP_VERSION):
+            QMessageBox.information(
+                self,
+                "No Update Available",
+                f"You are already on the latest version.\n\nCurrent version: {APP_VERSION}",
+            )
+            return
+
+        notes_html = ""
+        if metadata["notes"]:
+            notes_html = f"<br><br><b>What's new</b><br>{html.escape(metadata['notes']).replace(chr(10), '<br>')}"
+        choice = QMessageBox.question(
+            self,
+            "Update Available",
+            (
+                f"A newer version is available.<br><br>"
+                f"Current version: {APP_VERSION}<br>"
+                f"Latest version: {html.escape(latest_version)}"
+                f"{notes_html}<br><br>"
+                "Download the new installer now?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+
+        download_url = metadata["download_url"]
+        target = _default_download_target(download_url)
+        self.statusBar().showMessage(f"Downloading update to {target} ...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            urllib.request.urlretrieve(download_url, target)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Download Failed",
+                (
+                    f"Could not download the update automatically.\n\n{exc}\n\n"
+                    f"You can download it manually here:\n{download_url}"
+                ),
+            )
+            self.statusBar().showMessage("Update download failed")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        try:
+            subprocess.run(["open", target], check=False)
+        except Exception:
+            pass
+        self.statusBar().showMessage(f"Update downloaded: {target}")
+        QMessageBox.information(
+            self,
+            "Update Downloaded",
+            (
+                f"The new installer has been downloaded to:\n{target}\n\n"
+                "Open the DMG and replace the app in Applications."
+            ),
+        )
 
     def _export_workflow_pdf(self):
         export_workflow_pdf(self, self.company)

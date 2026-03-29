@@ -7,6 +7,7 @@ VERSION="$(tr -d '[:space:]' < VERSION)"
 APP_NAME="GEORGIN Accounting"
 DMG_PATH="dist/GEORGIN_Accounting_Installer.dmg"
 TAG="v$VERSION"
+VERSION_JSON="docs/version.json"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI (gh) is required."
@@ -24,10 +25,20 @@ if [ -z "$REPO" ]; then
   exit 1
 fi
 
+mkdir -p docs
+cat > "$VERSION_JSON" <<EOF
+{
+  "version": "$VERSION",
+  "download_url": "https://github.com/$REPO/releases/latest/download/GEORGIN_Accounting_Installer.dmg",
+  "notes": "GitHub release $TAG"
+}
+EOF
+touch docs/.nojekyll
+
 bash build_app.sh
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add VERSION build_app.sh georgin_app.py README.md
+  git add VERSION build_app.sh georgin_app.py README.md docs/version.json docs/.nojekyll release_app.sh
   git commit -m "Release $TAG"
 fi
 

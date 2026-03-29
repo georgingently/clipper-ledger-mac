@@ -8,6 +8,8 @@ import datetime
 import re
 from dbfread import DBF, FieldParser
 
+_LAST_ERROR = ""
+
 _env_data_dir = os.environ.get("GEORGIN_DATA", "").strip()
 DATA_DIR = os.path.abspath(_env_data_dir) if _env_data_dir else os.path.expanduser("~")
 
@@ -62,6 +64,15 @@ def set_data_dir(path):
     DATA_DIR = os.path.abspath(path)
     os.environ["GEORGIN_DATA"] = DATA_DIR
     return True
+
+
+def _set_last_error(message):
+    global _LAST_ERROR
+    _LAST_ERROR = str(message or "").strip()
+
+
+def get_last_error():
+    return _LAST_ERROR
 
 
 def _has_georgin_dbfs(path):
@@ -147,6 +158,7 @@ def read_table(table_name, year="current", filters=None, order_by=None, limit=No
     """
     path = dbf_path(table_name, year)
     if not os.path.exists(path):
+        _set_last_error(f"Missing table: {path}")
         return []
     try:
         table = DBF(path, parserclass=MyFieldParser, ignore_missing_memofile=True, encoding="cp1252")
@@ -165,8 +177,10 @@ def read_table(table_name, year="current", filters=None, order_by=None, limit=No
             records.sort(key=lambda r: str(r.get(order_by, "") or "").strip())
         if limit:
             records = records[:limit]
+        _set_last_error("")
         return records
     except Exception as e:
+        _set_last_error(f"Read failed for {table_name}: {e}")
         return []
 
 
@@ -174,6 +188,7 @@ def get_table_fields(table_name, year="current"):
     """Return list of (name, type, length, decimal) for a table."""
     path = dbf_path(table_name, year)
     if not os.path.exists(path):
+        _set_last_error(f"Missing table: {path}")
         return []
     try:
         with open(path, "rb") as f:
@@ -191,6 +206,7 @@ def get_table_fields(table_name, year="current"):
                     fields.append({"name": name, "type": ftype, "length": flen, "decimal": fdec})
         return fields
     except Exception:
+        _set_last_error(f"Field scan failed for {table_name}")
         return []
 
 
@@ -198,67 +214,195 @@ def count_records(table_name, year="current"):
     """Fast count of records in a DBF file from header."""
     path = dbf_path(table_name, year)
     if not os.path.exists(path):
+        _set_last_error(f"Missing table: {path}")
         return 0
     try:
         with open(path, "rb") as f:
             header = f.read(8)
             return struct.unpack("<I", header[4:8])[0]
     except Exception:
+        _set_last_error(f"Count failed for {table_name}")
         return 0
 
 
-def write_record(table_name, year="current", record=None):
-    """Append a new record to a DBF file using raw struct writes."""
-    if record is None:
-        return False
-    import dbf as dbflib
+def _dbf_schema(table_name, year="current"):
     path = dbf_path(table_name, year)
     if not os.path.exists(path):
+        return None, None, None, []
+    with open(path, "rb") as fh:
+        header = fh.read(32)
+        header_len = struct.unpack("<H", header[8:10])[0]
+        record_len = struct.unpack("<H", header[10:12])[0]
+        fields = []
+        offset = 1
+        while True:
+            fd = fh.read(32)
+            if not fd or fd[0] == 0x0D:
+                break
+            name = fd[:11].replace(b"\x00", b"").decode("ascii", errors="ignore").strip()
+            ftype = chr(fd[11])
+            flen = fd[16]
+            fdec = fd[17]
+            if name:
+                fields.append({
+                    "name": name,
+                    "type": ftype,
+                    "length": flen,
+                    "decimal": fdec,
+                    "offset": offset,
+                })
+                offset += flen
+    return path, header_len, record_len, fields
+
+
+def _coerce_dbf_bytes(field, value):
+    ftype = field["type"]
+    flen = field["length"]
+    fdec = field["decimal"]
+    if ftype == "C":
+        text = str(value or "")
+        raw = text.encode("cp1252", errors="replace")[:flen]
+        return raw.ljust(flen, b" ")
+    if ftype == "D":
+        if isinstance(value, datetime.datetime):
+            value = value.date()
+        if isinstance(value, datetime.date):
+            return value.strftime("%Y%m%d").encode("ascii")
+        return b" " * flen
+    if ftype == "N":
+        if value in (None, ""):
+            return b" " * flen
+        try:
+            num = float(value)
+            if fdec:
+                text = f"{num:>{flen}.{fdec}f}"
+            else:
+                text = f"{int(round(num)):>{flen}d}"
+        except Exception:
+            text = str(value).strip()[:flen].rjust(flen)
+        return text.encode("ascii", errors="replace")[:flen].rjust(flen, b" ")
+    if ftype == "L":
+        return (b"T" if bool(value) else b"F").ljust(flen, b" ")
+    if ftype == "M":
+        return b" " * flen
+    text = str(value or "")
+    raw = text.encode("cp1252", errors="replace")[:flen]
+    return raw.ljust(flen, b" ")
+
+
+def _write_header_count_and_date(fh, record_count):
+    today = datetime.date.today()
+    fh.seek(1)
+    fh.write(bytes([
+        max(0, today.year - 1900) % 256,
+        today.month,
+        today.day,
+    ]))
+    fh.write(struct.pack("<I", record_count))
+
+
+def _find_field(fields, key):
+    key_u = str(key or "").strip().upper()
+    for field in fields:
+        if field["name"].upper() == key_u:
+            return field
+    return None
+
+
+def write_record(table_name, year="current", record=None):
+    """Append a new record to a DBF file using raw writes."""
+    if record is None:
+        _set_last_error("No record payload supplied")
+        return False
+    path, header_len, record_len, fields = _dbf_schema(table_name, year)
+    if not path or not fields:
+        _set_last_error(f"Schema not available for {table_name} ({year})")
         return False
     try:
-        t = dbflib.Table(path, codepage="cp1252")
-        t.open(mode=dbflib.READ_WRITE)
-        t.append(record)
-        t.close()
+        record_bytes = bytearray(b" " * record_len)
+        record_bytes[0] = 0x20
+        for key, value in record.items():
+            field = _find_field(fields, key)
+            if not field:
+                continue
+            start = field["offset"]
+            end = start + field["length"]
+            record_bytes[start:end] = _coerce_dbf_bytes(field, value)
+        with open(path, "r+b") as fh:
+            fh.seek(0, os.SEEK_END)
+            end_pos = fh.tell()
+            if end_pos:
+                fh.seek(end_pos - 1)
+                if fh.read(1) == b"\x1a":
+                    fh.seek(end_pos - 1)
+                else:
+                    fh.seek(end_pos)
+            fh.write(record_bytes)
+            fh.write(b"\x1a")
+            new_count = count_records(table_name, year) + 1
+            _write_header_count_and_date(fh, new_count)
+        _set_last_error("")
         return True
     except Exception as e:
+        _set_last_error(f"Write failed for {table_name}: {e}")
         return False
 
 
 def update_record(table_name, year="current", recno=None, updates=None):
     """Update a record in a DBF file by record number (1-based)."""
     if recno is None or updates is None:
+        _set_last_error("Missing record number or update payload")
         return False
-    import dbf as dbflib
-    path = dbf_path(table_name, year)
-    if not os.path.exists(path):
+    path, header_len, record_len, fields = _dbf_schema(table_name, year)
+    if not path or not fields:
+        _set_last_error(f"Schema not available for {table_name} ({year})")
         return False
     try:
-        t = dbflib.Table(path, codepage="cp1252")
-        t.open(mode=dbflib.READ_WRITE)
-        rec = t[recno - 1]
-        dbflib.write(rec, **updates)
-        t.close()
+        with open(path, "r+b") as fh:
+            offset = header_len + (recno - 1) * record_len
+            fh.seek(offset)
+            record_bytes = bytearray(fh.read(record_len))
+            if len(record_bytes) != record_len:
+                _set_last_error(f"Invalid record offset {recno} for {table_name}")
+                return False
+            if record_bytes[0] == 0x2A:
+                record_bytes[0] = 0x20
+            for key, value in updates.items():
+                field = _find_field(fields, key)
+                if not field:
+                    continue
+                start = field["offset"]
+                end = start + field["length"]
+                record_bytes[start:end] = _coerce_dbf_bytes(field, value)
+            fh.seek(offset)
+            fh.write(record_bytes)
+            _write_header_count_and_date(fh, count_records(table_name, year))
+        _set_last_error("")
         return True
     except Exception as e:
+        _set_last_error(f"Update failed for {table_name}: {e}")
         return False
 
 
 def delete_record(table_name, year="current", recno=None):
     """Soft-delete a record in a DBF file."""
     if recno is None:
+        _set_last_error("Missing record number")
         return False
-    import dbf as dbflib
-    path = dbf_path(table_name, year)
-    if not os.path.exists(path):
+    path, header_len, record_len, fields = _dbf_schema(table_name, year)
+    if not path or not fields:
+        _set_last_error(f"Schema not available for {table_name} ({year})")
         return False
     try:
-        t = dbflib.Table(path, codepage="cp1252")
-        t.open(mode=dbflib.READ_WRITE)
-        dbflib.delete(t[recno - 1])
-        t.close()
+        with open(path, "r+b") as fh:
+            offset = header_len + (recno - 1) * record_len
+            fh.seek(offset)
+            fh.write(b"*")
+            _write_header_count_and_date(fh, count_records(table_name, year))
+        _set_last_error("")
         return True
     except Exception as e:
+        _set_last_error(f"Delete failed for {table_name}: {e}")
         return False
 
 
@@ -266,28 +410,11 @@ def delete_records(table_name, year="current", filters=None):
     """Soft-delete every record in a DBF file matching simple equality filters."""
     if not filters:
         return 0
-    import dbf as dbflib
-    path = dbf_path(table_name, year)
-    if not os.path.exists(path):
-        return 0
-    try:
-        table = dbflib.Table(path, codepage="cp1252")
-        table.open(mode=dbflib.READ_WRITE)
-        deleted = 0
-        for record in table:
-            matches = True
-            for key, expected in filters.items():
-                actual = record[key]
-                if str(actual or "").strip() != str(expected or "").strip():
-                    matches = False
-                    break
-            if matches:
-                dbflib.delete(record)
-                deleted += 1
-        table.close()
-        return deleted
-    except Exception:
-        return 0
+    deleted = 0
+    for record in read_table(table_name, year, filters=filters):
+        if delete_record(table_name, year, recno=record.get("_recno")):
+            deleted += 1
+    return deleted
 
 
 DEFAULT_YEAR = "B1"  # Most recently updated year prefix

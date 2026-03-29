@@ -45,6 +45,7 @@ The desktop app includes:
 - `models/dbf_layer.py` — DBF read/write layer and data-folder detection
 - `build_app.sh` — builds the macOS `.app` bundle and DMG
 - `release_app.sh` — builds, tags, and publishes a GitHub release
+- `docs/version.json` — GitHub Pages update feed used by the in-app updater
 - `VERSION` — source of truth for the application version
 - `UPDATES.md` — update strategy notes
 
@@ -108,6 +109,12 @@ To build the app, push the current branch, tag the current version, and publish 
 
 ```bash
 bash release_app.sh
+```
+
+For the test updater, enable GitHub Pages for the public repository and publish from the `docs/` folder so `docs/version.json` is available at:
+
+```text
+https://georgingently.github.io/clipper-ledger-mac/version.json
 ```
 
 ## End User Installation

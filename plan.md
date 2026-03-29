@@ -91,3 +91,4 @@ Round 2:
 - `SalesModule` was redesigned in place instead of wiring the dormant `SalesEntryPage`; this kept the browse grid and the editing area visible together, which matches the requested workflow more closely.
 - The sales register columns were shifted toward the legacy register wording (`Bill`, `Date`, `Party`, `Sls. Amt`, `Nett Amt`, `Type`) while the lower detail editor now holds the fuller persisted bill fields.
 - The packaged crash mitigation was implemented at `DosMenuPage._activate_item` with a guarded `try/except` around handler execution, turning menu-triggered Python exceptions into dialogs instead of raw Qt aborts.
+- The follow-up packaged crash report showed a second fatal path in `SalesModule.keyPressEvent`, so sales function-key actions were moved onto explicit `QShortcut` bindings and wrapped dispatch to prevent uncaught Python exceptions from aborting the app on a friend's machine.
