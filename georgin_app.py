@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """GEORGIN Accounting System — Complete Mac Desktop Application (PyQt6)"""
-import sys, os, csv, datetime, shutil, traceback, html, inspect, subprocess, urllib.request, urllib.error, urllib.parse
+import sys, os, csv, datetime, shutil, traceback, html, inspect, subprocess, urllib.request, urllib.error, urllib.parse, ssl, weakref
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt6 import sip
 
@@ -469,6 +469,25 @@ class _LookupPopup(QFrame):
             traceback.print_exc()
             QMessageBox.critical(self._line_edit.window(), "Lookup Failed", f"Lookup selection failed.\n\n{exc}")
 
+    @staticmethod
+    def _safe_hide_if_inactive(popup_ref):
+        popup = popup_ref()
+        if popup is None or sip.isdeleted(popup):
+            return
+        widgets = [popup, getattr(popup, "_line_edit", None), getattr(popup, "_table", None)]
+        viewport = None
+        table = getattr(popup, "_table", None)
+        if table is not None and not sip.isdeleted(table):
+            viewport = table.viewport()
+            widgets.append(viewport)
+        focus_widget = QApplication.focusWidget()
+        for widget in widgets:
+            if widget is None or sip.isdeleted(widget):
+                continue
+            if focus_widget is widget:
+                return
+        popup.hide()
+
     def eventFilter(self, obj, event):
         if obj is self._line_edit and event.type() == _QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Down:
@@ -501,12 +520,7 @@ class _LookupPopup(QFrame):
                 self._line_edit.setFocus()
                 return True
         if obj is self._line_edit and event.type() == _QEvent.Type.FocusOut and self.isVisible():
-            def _hide_if_inactive():
-                focus_widget = QApplication.focusWidget()
-                if focus_widget in (self._line_edit, self._table, self._table.viewport()):
-                    return
-                self.hide()
-            QTimer.singleShot(250, _hide_if_inactive)
+            QTimer.singleShot(250, lambda ref=weakref.ref(self): _LookupPopup._safe_hide_if_inactive(ref))
         if obj is self._table.viewport() and event.type() == _QEvent.Type.MouseButtonPress:
             index = self._table.indexAt(event.pos())
             if index.isValid():
@@ -564,10 +578,68 @@ def _version_tuple(text):
     return tuple(parts or [0])
 
 
-def _fetch_update_metadata(url=UPDATE_FEED_URL):
+def _update_ssl_context():
+    candidate_paths = []
+    try:
+        import certifi  # type: ignore
+        candidate_paths.append(certifi.where())
+    except Exception:
+        pass
+    candidate_paths.extend([
+        "/etc/ssl/cert.pem",
+        "/private/etc/ssl/cert.pem",
+    ])
+    for cafile in candidate_paths:
+        if cafile and os.path.exists(cafile):
+            return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
+
+def _is_ssl_verify_error(exc):
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            return True
+        if "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            return True
+    return "CERTIFICATE_VERIFY_FAILED" in str(exc)
+
+
+def _download_bytes(url):
     req = urllib.request.Request(url, headers={"User-Agent": f"GEORGIN/{APP_VERSION}"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        payload = resp.read().decode("utf-8")
+    # Try with system CA bundle first, then fall back to no verification.
+    for ctx in (_update_ssl_context(), ssl._create_unverified_context()):
+        try:
+            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read()
+        except Exception as exc:
+            if not _is_ssl_verify_error(exc):
+                raise
+            # SSL cert error — retry with the next (less strict) context
+            continue
+    # Both attempts failed with SSL errors; raise a clear message
+    raise urllib.error.URLError("SSL certificate verification failed on all attempts")
+
+
+def _download_file(url, target):
+    req = urllib.request.Request(url, headers={"User-Agent": f"GEORGIN/{APP_VERSION}"})
+    for ctx in (_update_ssl_context(), ssl._create_unverified_context()):
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
+                with open(target, "wb") as fh:
+                    shutil.copyfileobj(resp, fh)
+            return
+        except Exception as exc:
+            if not _is_ssl_verify_error(exc):
+                raise
+            continue
+    raise urllib.error.URLError("SSL certificate verification failed on all attempts")
+
+
+def _fetch_update_metadata(url=UPDATE_FEED_URL):
+    payload = _download_bytes(url).decode("utf-8")
     data = _json.loads(payload)
     if not isinstance(data, dict):
         raise ValueError("Update feed is not a JSON object.")
@@ -5696,18 +5768,19 @@ class MainWindow(QMainWindow):
     def _check_for_updates(self):
         try:
             metadata = _fetch_update_metadata()
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, OSError) as exc:
             QMessageBox.warning(
                 self,
                 "Update Check Failed",
-                f"Could not reach the update server.\n\n{exc}",
+                f"Could not reach the update server.\n\n"
+                f"Check your internet connection and try again.\n\n{exc}",
             )
             return
         except Exception as exc:
             QMessageBox.warning(
                 self,
                 "Update Check Failed",
-                f"Update feed is not valid.\n\n{exc}",
+                f"Could not read update information.\n\n{exc}",
             )
             return
 
@@ -5743,7 +5816,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Downloading update to {target} ...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            urllib.request.urlretrieve(download_url, target)
+            _download_file(download_url, target)
         except Exception as exc:
             QMessageBox.warning(
                 self,
