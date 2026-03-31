@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented here.
 
+## [0.1.4] - 2026-03-31
+
+### Changed
+
+- Improved DMG auto-install handling by removing quarantine before mount and surfacing mount errors
+- Restored keyboard-first TUI navigation for menus and table cursor movement
+
+### Notes
+
+- Release includes updated in-app feed metadata for automatic update checks
+
 ## [0.1.0] - 2026-03-28
 
 ### Added

@@ -558,7 +558,15 @@ MENU_KEYS = list(MENU_DEFS.keys())
 
 
 class MainScreen(Screen):
-    BINDINGS = []  # All keys handled in on_key for reliable focus-independent capture
+    BINDINGS = [
+        Binding("left",   "move_left",   show=False, priority=True),
+        Binding("right",  "move_right",  show=False, priority=True),
+        Binding("up",     "move_up",     show=False, priority=True),
+        Binding("down",   "move_down",   show=False, priority=True),
+        Binding("enter",  "confirm",     show=False, priority=True),
+        Binding("escape", "close_menu",  show=False, priority=True),
+        Binding("f1",     "open_entries",show=False, priority=True),
+    ]
 
     _menu_idx = reactive(0)
     _dropdown_idx = reactive(-1)
@@ -626,57 +634,62 @@ class MainScreen(Screen):
         for child in list(area.children):
             child.remove()
 
-    def on_key(self, event: events.Key):
-        k = event.key
-        items = MENU_DEFS[MENU_KEYS[self._menu_idx]]
+    def action_move_left(self):
+        self._close_dropdown()
+        self._menu_idx = (self._menu_idx - 1) % len(MENU_KEYS)
+        self._update_menu_highlight()
 
-        if k == "left":
+    def action_move_right(self):
+        if self._dropdown_open:
+            # Right arrow confirms the current dropdown selection (opens it)
+            items = MENU_DEFS[MENU_KEYS[self._menu_idx]]
+            menu_name = MENU_KEYS[self._menu_idx]
+            selected = items[self._dropdown_idx]
             self._close_dropdown()
-            self._menu_idx = (self._menu_idx - 1) % len(MENU_KEYS)
-            self._update_menu_highlight()
-            event.stop()
-        elif k == "right":
-            self._close_dropdown()
+            self._handle_selection(menu_name, selected)
+        else:
             self._menu_idx = (self._menu_idx + 1) % len(MENU_KEYS)
             self._update_menu_highlight()
-            event.stop()
-        elif k == "down":
-            if not self._dropdown_open:
-                self._dropdown_open = True
-                self._dropdown_idx = 0
-                self._render_dropdown()
-            elif self._dropdown_idx < len(items) - 1:
-                self.query_one(f"#di_{self._dropdown_idx}").remove_class("highlighted")
-                self._dropdown_idx += 1
-                self.query_one(f"#di_{self._dropdown_idx}").add_class("highlighted")
-            event.stop()
-        elif k == "up":
-            if self._dropdown_open and self._dropdown_idx > 0:
-                self.query_one(f"#di_{self._dropdown_idx}").remove_class("highlighted")
-                self._dropdown_idx -= 1
-                self.query_one(f"#di_{self._dropdown_idx}").add_class("highlighted")
-            event.stop()
-        elif k == "enter":
-            if not self._dropdown_open:
-                self._dropdown_open = True
-                self._dropdown_idx = 0
-                self._render_dropdown()
-            else:
-                menu_name = MENU_KEYS[self._menu_idx]
-                selected = items[self._dropdown_idx]
-                self._close_dropdown()
-                self._handle_selection(menu_name, selected)
-            event.stop()
-        elif k == "escape":
-            if self._dropdown_open:
-                self._close_dropdown()
-            event.stop()
-        elif k == "f1":
-            self._menu_idx = 0
+
+    def action_move_down(self):
+        items = MENU_DEFS[MENU_KEYS[self._menu_idx]]
+        if not self._dropdown_open:
             self._dropdown_open = True
             self._dropdown_idx = 0
             self._render_dropdown()
-            event.stop()
+        elif self._dropdown_idx < len(items) - 1:
+            self.query_one(f"#di_{self._dropdown_idx}").remove_class("highlighted")
+            self._dropdown_idx += 1
+            self.query_one(f"#di_{self._dropdown_idx}").add_class("highlighted")
+
+    def action_move_up(self):
+        if self._dropdown_open and self._dropdown_idx > 0:
+            self.query_one(f"#di_{self._dropdown_idx}").remove_class("highlighted")
+            self._dropdown_idx -= 1
+            self.query_one(f"#di_{self._dropdown_idx}").add_class("highlighted")
+
+    def action_confirm(self):
+        items = MENU_DEFS[MENU_KEYS[self._menu_idx]]
+        if not self._dropdown_open:
+            self._dropdown_open = True
+            self._dropdown_idx = 0
+            self._render_dropdown()
+        else:
+            menu_name = MENU_KEYS[self._menu_idx]
+            selected = items[self._dropdown_idx]
+            self._close_dropdown()
+            self._handle_selection(menu_name, selected)
+
+    def action_close_menu(self):
+        if self._dropdown_open:
+            self._close_dropdown()
+
+    def action_open_entries(self):
+        self._menu_idx = 0
+        self._update_menu_highlight()
+        self._dropdown_open = True
+        self._dropdown_idx = 0
+        self._render_dropdown()
 
     def _handle_selection(self, menu, item):
         year = self.app.current_year
@@ -737,6 +750,8 @@ class CashBookScreen(Screen):
         Binding("f2", "lookup_account", "F2=A/c Lookup", show=True),
         Binding("f9", "save_entry", "F9=Save", show=True),
         Binding("tab", "next_field", show=False),
+        Binding("up",   "table_up",   show=False, priority=True),
+        Binding("down", "table_down", show=False, priority=True),
     ]
 
     def __init__(self, year, docd, book_name, main_accd):
@@ -910,6 +925,18 @@ class CashBookScreen(Screen):
                     return
             except Exception:
                 pass
+
+    def action_table_up(self):
+        try:
+            self.query_one("#book-table", DataTable).action_cursor_up()
+        except Exception:
+            pass
+
+    def action_table_down(self):
+        try:
+            self.query_one("#book-table", DataTable).action_cursor_down()
+        except Exception:
+            pass
 
 
 # ── Sales Screen ─────────────────────────────────────────────────────────────

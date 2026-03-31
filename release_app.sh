@@ -38,7 +38,7 @@ touch docs/.nojekyll
 bash build_app.sh
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  git add VERSION build_app.sh georgin_app.py README.md docs/version.json docs/.nojekyll release_app.sh
+  git add -A
   git commit -m "Release $TAG"
 fi
 

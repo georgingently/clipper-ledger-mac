@@ -667,16 +667,23 @@ def _auto_install_dmg(dmg_path):
     Mount the DMG, copy the app to /Applications, remove quarantine, unmount.
     Returns (success: bool, error_message: str).
     """
-    import tempfile, time as _time
+    import time as _time
     mount_point = None
     try:
-        # Mount the DMG silently
+        # Strip quarantine from the DMG so hdiutil can mount it non-interactively
+        subprocess.run(
+            ["xattr", "-dr", "com.apple.quarantine", dmg_path],
+            check=False, timeout=10, capture_output=True,
+        )
+
+        # Mount the DMG (omit -quiet so errors are captured in stderr)
         result = subprocess.run(
-            ["hdiutil", "attach", "-nobrowse", "-quiet", dmg_path],
+            ["hdiutil", "attach", "-nobrowse", dmg_path],
             capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
-            return False, f"Could not mount the installer:\n{result.stderr.strip()}"
+            err = result.stderr.strip() or result.stdout.strip() or "unknown error"
+            return False, f"Could not mount the installer:\n{err}"
 
         # Find the mounted app — try up to 10 seconds
         app_src = None
